@@ -149,6 +149,7 @@ class H3PersistentReferenceBank:
         frame_count = mmh3.align_frame_count(max(5, frames_per_shot))
         items = []
         blocks = []
+        entries = []
         report = []
 
         for index in range(1, MAX_IMAGES + 1):
@@ -171,16 +172,17 @@ class H3PersistentReferenceBank:
             )
             resized = mmh3._resize(image, target_width, target_height, "disabled")
             latent = video_vae.encode(resized)
-            items.append({"type": "image", "data": resized})
-            blocks.append(
-                {
-                    "kind": "image",
-                    "latent_h": target_height // 16,
-                    "latent_w": target_width // 16,
-                    "latent": latent,
-                }
-            )
-            report.append(f"Picture {index}")
+            item = {"type": "image", "data": resized}
+            block = {
+                "kind": "image",
+                "latent_h": target_height // 16,
+                "latent_w": target_width // 16,
+                "latent": latent,
+            }
+            items.append(item)
+            blocks.append(block)
+            entries.append({"kind": "image", "items": [item], "blocks": [block]})
+            report.append(f"Picture {sum(item['type'] == 'image' for item in items)}")
 
         for index in range(1, MAX_VIDEOS + 1):
             video = references.get(f"ref_video_{index}")
@@ -206,30 +208,41 @@ class H3PersistentReferenceBank:
                 frames = frames[:-1]
 
             audio_block = None
+            audio_item = None
+            audio_label = None
             paired_audio = references.get(f"ref_video_audio_{index}")
             if paired_audio is not None:
                 audio_block, seconds = _prepare_audio(audio_vae, paired_audio, max_audio_seconds)
-                items.append({"type": "audio"})
-                report.append(f"Audio {sum(item['type'] == 'audio' for item in items)} (video {index})")
+                audio_item = {"type": "audio"}
+                items.append(audio_item)
+                audio_label = sum(item["type"] == "audio" for item in items)
+                report.append(f"Audio {audio_label} (video {index})")
 
             latent = video_vae.encode(frames)
             sample_indices = list(range(0, frames.shape[0], mmh3.FPS // 2))
-            items.append(
+            video_item = {
+                "type": "video",
+                "data": frames[sample_indices],
+                "timestamps": [i / 2.0 for i in range(len(sample_indices))],
+            }
+            block = {
+                "kind": "video_audio" if audio_block else "video",
+                "latent_t": latent.shape[2],
+                "latent_h": target_height // 16,
+                "latent_w": target_width // 16,
+                "ref_audio_t": audio_block["ref_audio_t"] if audio_block else 0,
+                "latent": latent,
+                "audio_latent": audio_block["audio_latent"] if audio_block else None,
+            }
+            items.append(video_item)
+            blocks.append(block)
+            entries.append(
                 {
-                    "type": "video",
-                    "data": frames[sample_indices],
-                    "timestamps": [i / 2.0 for i in range(len(sample_indices))],
-                }
-            )
-            blocks.append(
-                {
-                    "kind": "video_audio" if audio_block else "video",
-                    "latent_t": latent.shape[2],
-                    "latent_h": target_height // 16,
-                    "latent_w": target_width // 16,
-                    "ref_audio_t": audio_block["ref_audio_t"] if audio_block else 0,
-                    "latent": latent,
-                    "audio_latent": audio_block["audio_latent"] if audio_block else None,
+                    "kind": "video",
+                    "items": ([audio_item] if audio_item else []) + [video_item],
+                    "blocks": [block],
+                    "video_item": video_item,
+                    "audio_label": audio_label,
                 }
             )
             report.append(f"Video {index}")
@@ -239,13 +252,24 @@ class H3PersistentReferenceBank:
             if audio is None:
                 continue
             block, seconds = _prepare_audio(audio_vae, audio, max_audio_seconds)
-            items.append({"type": "audio"})
+            item = {"type": "audio"}
+            items.append(item)
             blocks.append(block)
-            report.append(f"Audio {sum(item['type'] == 'audio' for item in items)} ({seconds:.1f}s)")
+            audio_label = sum(item["type"] == "audio" for item in items)
+            entries.append(
+                {
+                    "kind": "audio",
+                    "items": [item],
+                    "blocks": [block],
+                    "audio_label": audio_label,
+                }
+            )
+            report.append(f"Audio {audio_label} ({seconds:.1f}s)")
 
         bank = {
             "items": items,
             "blocks": blocks,
+            "entries": entries,
             "has_references": bool(blocks),
             "report": ", ".join(report) if report else "No persistent references",
         }

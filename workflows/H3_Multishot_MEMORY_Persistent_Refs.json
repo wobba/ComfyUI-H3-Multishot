@@ -115,7 +115,9 @@
         2,
         1,
         "res_multistep",
-        "simple"
+        "simple",
+        "auto_speaker_aware",
+        ""
       ]
     },
     {

@@ -13,6 +13,7 @@ from .h3_lora_stack import (NODE_CLASS_MAPPINGS as _LS_C,
                             NODE_DISPLAY_NAME_MAPPINGS as _LS_D)
 from .h3_reference_bank import (NODE_CLASS_MAPPINGS as _RB_C,
                                 NODE_DISPLAY_NAME_MAPPINGS as _RB_D)
+from . import h3_reference_routing  # noqa: F401
 
 for _c, _n in ((_KF_C, _KF_N), (_AD_C, _AD_N)):
     NODE_CLASS_MAPPINGS.update(_c)

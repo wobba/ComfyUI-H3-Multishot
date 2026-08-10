@@ -1460,6 +1460,20 @@ class H3MultishotMemorySampler:
                            "Connect H3 Persistent Reference Bank; Ref2VA is required "
                            "whenever this bank contains references.",
             }),
+            "audio_reference_mode": (["always", "auto_speaker_aware", "schedule"], {
+                "default": "always",
+                "tooltip": "Always preserves every audio reference. Auto keeps only "
+                           "refs whose mapped speaker has dialogue in the current "
+                           "shot; ambiguous references are retained. Schedule uses "
+                           "the explicit per-shot source audio labels below.",
+            }),
+            "audio_reference_schedule": ("STRING", {
+                "default": "",
+                "multiline": False,
+                "tooltip": "Optional per-shot audio source labels, e.g. '2|2|1' "
+                           "or '[2, 2, 1]'. Active audio is locally renumbered "
+                           "to <Audio 1..N> for that shot.",
+            }),
         }}
 
     RETURN_TYPES = ("IMAGE", "AUDIO", "INT")
@@ -1470,7 +1484,8 @@ class H3MultishotMemorySampler:
     def run(self, model, clip, video_vae, audio_vae, script, shot_count, width,
             height, frames_per_shot, seed, steps, memory_frames, anchor_frames,
             seed_per_shot=False, start_image=None,
-            sampler_name="res_multistep", scheduler="simple", persistent_refs=None):
+            sampler_name="res_multistep", scheduler="simple", persistent_refs=None,
+            audio_reference_mode="always", audio_reference_schedule=""):
         import torch
         import node_helpers
         from comfy_extras import nodes_custom_sampler as ncs
@@ -1496,9 +1511,7 @@ class H3MultishotMemorySampler:
             print("[H3Memory] I2V: shot 1 starts from the supplied image; it is "
                   "also the identity anchor.", flush=True)
 
-        ref_items = list((persistent_refs or {}).get("items", []))
-        ref_blocks = list((persistent_refs or {}).get("blocks", []))
-        if ref_blocks:
+        if (persistent_refs or {}).get("blocks"):
             print(f"[H3Memory] persistent refs: {(persistent_refs or {}).get('report', '')}",
                   flush=True)
 
@@ -1526,12 +1539,22 @@ class H3MultishotMemorySampler:
                 kf = mmh3._resize(cont[:1], width, height, "disabled")
                 keyframes.append({"resolved_frame_index": 0, "image": kf})
 
+            from .h3_reference_routing import route_reference_bank
+            shot_prompt, ref_items, ref_blocks, route_report = route_reference_bank(
+                persistent_refs,
+                prompt,
+                si,
+                audio_reference_mode,
+                audio_reference_schedule,
+            )
             if ref_items:
+                print(f"[H3Memory] shot {si + 1} reference routing: {route_report}",
+                      flush=True)
                 items = list(ref_items)
                 items.extend({"type": "image", "data": image} for image in images)
-                tokens = clip.tokenize(prompt, minimax_ref_items=items)
+                tokens = clip.tokenize(shot_prompt, minimax_ref_items=items)
             else:
-                tokens = clip.tokenize(prompt, images=images)
+                tokens = clip.tokenize(shot_prompt, images=images)
             cond = clip.encode_from_tokens_scheduled(tokens)
             if keyframes:
                 for kf_ in keyframes:
