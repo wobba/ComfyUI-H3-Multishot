@@ -71,9 +71,10 @@ def _auto_labels(prompt, available_labels):
             continue
         speaker = speaker_map.get(label)
         if speaker is None:
-            # A bare tag in the action prose is an explicit request. A tag
-            # limited to a definition is ambiguous, so preserve it safely.
-            active.add(label)
+            # A shot that does not name this reference has no reason to pay
+            # for its packed audio rows. A bare tag remains an explicit use.
+            if re.search(rf"<Audio\s+{label}>", prompt, re.IGNORECASE):
+                active.add(label)
         elif _speaker_has_dialogue(prompt, speaker):
             active.add(label)
     return active
