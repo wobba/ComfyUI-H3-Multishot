@@ -10,7 +10,7 @@ MAX_VIDEOS = 3
 MAX_AUDIOS = 3
 
 
-def _model_choices():
+def _model_choices(variant=None):
     import folder_paths
 
     files = set(folder_paths.get_filename_list("diffusion_models"))
@@ -21,7 +21,12 @@ def _model_choices():
             for name in names:
                 if name.lower().endswith(".gguf"):
                     files.add(os.path.relpath(os.path.join(root, name), directory))
-    return sorted(files)
+    files = sorted(files)
+    if variant:
+        matching = [name for name in files if f"minimax_h3_{variant}" in name.lower()]
+        if matching:
+            return matching
+    return files
 
 
 def _prepare_audio(audio_vae, audio, max_seconds):
@@ -253,18 +258,19 @@ class H3ReferenceAwareModelLoader:
 
     @classmethod
     def INPUT_TYPES(cls):
-        choices = _model_choices()
+        fl2va_choices = _model_choices("fl2va")
+        ref2va_choices = _model_choices("ref2va")
         return {
             "required": {
                 "fl2va_model": (
-                    choices,
+                    fl2va_choices,
                     {
                         "default": "minimax_h3_fl2va_pruned_nvfp4.safetensors",
                         "tooltip": "Used when the connected reference bank is empty.",
                     },
                 ),
                 "ref2va_model": (
-                    choices,
+                    ref2va_choices,
                     {
                         "default": "minimax_h3_ref2va_pruned_nvfp4.safetensors",
                         "tooltip": "Used whenever the connected reference bank contains images, video, or audio.",
