@@ -1,0 +1,240 @@
+{
+  "id": "h3-memory-persistent-refs",
+  "revision": 0,
+  "last_node_id": 13,
+  "last_link_id": 15,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "H3ReferenceAwareModelLoader",
+      "pos": [-820, 20],
+      "size": [390, 110],
+      "title": "AUTO MODEL: FL2VA without refs / Ref2VA with refs",
+      "inputs": [
+        {"name": "persistent_refs", "type": "H3_REFS", "link": 5}
+      ],
+      "outputs": [
+        {"name": "model", "type": "MODEL", "links": [1]},
+        {"name": "selected_model", "type": "STRING", "links": null},
+        {"name": "using_ref2va", "type": "BOOLEAN", "links": null}
+      ],
+      "widgets_values": [
+        "minimax_h3_fl2va_pruned_nvfp4.safetensors",
+        "minimax_h3_ref2va_pruned_nvfp4.safetensors",
+        0
+      ]
+    },
+    {
+      "id": 2,
+      "type": "H3ClipLoaderAny",
+      "pos": [-820, 170],
+      "size": [390, 90],
+      "title": "MiniMax H3 Text Encoder",
+      "inputs": [],
+      "outputs": [
+        {"name": "CLIP", "type": "CLIP", "links": [2]}
+      ],
+      "widgets_values": [
+        "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+        "minimax"
+      ]
+    },
+    {
+      "id": 3,
+      "type": "VAELoader",
+      "pos": [-820, 290],
+      "size": [390, 70],
+      "title": "Video VAE",
+      "inputs": [],
+      "outputs": [
+        {"name": "VAE", "type": "VAE", "links": [3, 6]}
+      ],
+      "widgets_values": ["minimax_h3_video_vae_fp16.safetensors"]
+    },
+    {
+      "id": 4,
+      "type": "VAELoader",
+      "pos": [-820, 390],
+      "size": [390, 70],
+      "title": "Audio VAE",
+      "inputs": [],
+      "outputs": [
+        {"name": "VAE", "type": "VAE", "links": [4, 7]}
+      ],
+      "widgets_values": ["minimax_h3_audio_vae_fp32.safetensors"]
+    },
+    {
+      "id": 5,
+      "type": "H3PersistentReferenceBank",
+      "pos": [-360, 20],
+      "size": [440, 340],
+      "title": "Persistent Native Reference Bank",
+      "inputs": [
+        {"name": "video_vae", "type": "VAE", "link": 6},
+        {"name": "audio_vae", "type": "VAE", "link": 7},
+        {"name": "ref_image_1", "type": "IMAGE", "link": 8},
+        {"name": "ref_image_2", "type": "IMAGE", "link": 9},
+        {"name": "ref_image_3", "type": "IMAGE", "link": 10},
+        {"name": "ref_audio_1", "type": "AUDIO", "link": 11}
+      ],
+      "outputs": [
+        {"name": "persistent_refs", "type": "H3_REFS", "links": [5, 12]},
+        {"name": "has_references", "type": "BOOLEAN", "links": null},
+        {"name": "reference_report", "type": "STRING", "links": null}
+      ],
+      "widgets_values": [960, 544, 243, "match", 12]
+    },
+    {
+      "id": 6,
+      "type": "H3MultishotMemorySampler",
+      "pos": [160, 20],
+      "size": [500, 560],
+      "title": "Memory Chain with Persistent References",
+      "inputs": [
+        {"name": "model", "type": "MODEL", "link": 1},
+        {"name": "clip", "type": "CLIP", "link": 2},
+        {"name": "video_vae", "type": "VAE", "link": 3},
+        {"name": "audio_vae", "type": "VAE", "link": 4},
+        {"name": "persistent_refs", "type": "H3_REFS", "link": 12}
+      ],
+      "outputs": [
+        {"name": "master_frames", "type": "IMAGE", "links": [13]},
+        {"name": "master_audio", "type": "AUDIO", "links": [14]},
+        {"name": "shots_rendered", "type": "INT", "links": null}
+      ],
+      "widgets_values": [
+        "<Subject 1> is the person shown in <Picture 1>, <Picture 2>, and <Picture 3>. <Audio 1> is the voice-timbre reference for <Subject 1> (S1).\n\n[reference generation] <Subject 1> remains visually and vocally consistent across the chained scene.\n\n[Shot 1] <Subject 1> (S1) stands in a softly lit room and says: <d>[English] This is the first shot.</d>\n\noverall_soundscape: Quiet room tone.\nnon_diegetic_music: N/A.\n---\n[reference generation] Continue the same scene with the same referenced subject and voice.\n\n[Shot 1] <Subject 1> (S1) continues naturally and says: <d>[English] This is the next shot.</d>\n\noverall_soundscape: Quiet room tone continues.\nnon_diegetic_music: N/A.",
+        0,
+        960,
+        544,
+        243,
+        0,
+        12,
+        true,
+        2,
+        1,
+        "res_multistep",
+        "simple"
+      ]
+    },
+    {
+      "id": 7,
+      "type": "CreateVideo",
+      "pos": [720, 90],
+      "size": [280, 100],
+      "title": "Mux H3 Video and Audio",
+      "inputs": [
+        {"name": "images", "type": "IMAGE", "link": 13},
+        {"name": "audio", "type": "AUDIO", "link": 14}
+      ],
+      "outputs": [
+        {"name": "VIDEO", "type": "VIDEO", "links": [15]}
+      ],
+      "widgets_values": [24, 8]
+    },
+    {
+      "id": 8,
+      "type": "SaveVideo",
+      "pos": [1040, 90],
+      "size": [300, 100],
+      "title": "Save Persistent Reference Master",
+      "inputs": [
+        {"name": "video", "type": "VIDEO", "link": 15}
+      ],
+      "outputs": [
+        {"name": "video", "type": "VIDEO", "links": null}
+      ],
+      "widgets_values": ["video/H3MULTI/PERSISTENT_REFS", "auto", "auto"]
+    },
+    {
+      "id": 9,
+      "type": "MarkdownNote",
+      "pos": [-360, -390],
+      "size": [700, 340],
+      "title": "How this workflow selects model and references",
+      "inputs": [],
+      "outputs": [],
+      "widgets_values": [
+        "## Persistent native references + memory chain\n\n**Model selection is automatic:** an empty Reference Bank loads FL2VA; any image, video, or audio reference selects Ref2VA. `start_image` is deliberately separate: it is the physical chain keyframe, not a numbered reference.\n\n**Reference labels:** native order is images (`<Picture N>`), then each reference video's paired audio immediately before that video (`<Audio N>`, `<Video N>`), then standalone audio (`<Audio N>`). Use the generated order consistently in every shot prompt.\n\n**Practical RTX 5090 profile:** use 1-3 images plus one clean 6-12 second voice reference; `ref_image_size=match`; 960x544 / 243 frames. The native 9 images + 3 videos + 3 standalone audios are supported, but persistent video context increases VRAM and attention cost on every step. Start with one short video reference only after the image/voice path is stable.\n\nThe sampler still chains with the previous final frame and preserves a first-shot visual anchor plus recent memory frames."
+      ],
+      "color": "#24364b",
+      "bgcolor": "#13202f"
+    },
+    {
+      "id": 10,
+      "type": "LoadImage",
+      "pos": [-820, 510],
+      "size": [240, 290],
+      "title": "Reference Image 1",
+      "inputs": [],
+      "outputs": [
+        {"name": "IMAGE", "type": "IMAGE", "links": [8]},
+        {"name": "MASK", "type": "MASK", "links": null}
+      ],
+      "widgets_values": ["choose_reference_1.png", "image"]
+    },
+    {
+      "id": 11,
+      "type": "LoadImage",
+      "pos": [-560, 510],
+      "size": [240, 290],
+      "title": "Reference Image 2",
+      "inputs": [],
+      "outputs": [
+        {"name": "IMAGE", "type": "IMAGE", "links": [9]},
+        {"name": "MASK", "type": "MASK", "links": null}
+      ],
+      "widgets_values": ["choose_reference_2.png", "image"]
+    },
+    {
+      "id": 12,
+      "type": "LoadImage",
+      "pos": [-300, 510],
+      "size": [240, 290],
+      "title": "Reference Image 3",
+      "inputs": [],
+      "outputs": [
+        {"name": "IMAGE", "type": "IMAGE", "links": [10]},
+        {"name": "MASK", "type": "MASK", "links": null}
+      ],
+      "widgets_values": ["choose_reference_3.png", "image"]
+    },
+    {
+      "id": 13,
+      "type": "LoadAudio",
+      "pos": [-40, 510],
+      "size": [240, 100],
+      "title": "Voice Reference: clean 6-12 second solo line",
+      "inputs": [],
+      "outputs": [
+        {"name": "AUDIO", "type": "AUDIO", "links": [11]}
+      ],
+      "widgets_values": ["choose_voice_reference.wav"]
+    }
+  ],
+  "links": [
+    [1, 1, 0, 6, 0, "MODEL"],
+    [2, 2, 0, 6, 1, "CLIP"],
+    [3, 3, 0, 6, 2, "VAE"],
+    [4, 4, 0, 6, 3, "VAE"],
+    [5, 5, 0, 1, 2, "H3_REFS"],
+    [6, 3, 0, 5, 0, "VAE"],
+    [7, 4, 0, 5, 1, "VAE"],
+    [8, 10, 0, 5, 7, "IMAGE"],
+    [9, 11, 0, 5, 8, "IMAGE"],
+    [10, 12, 0, 5, 9, "IMAGE"],
+    [11, 13, 0, 5, 22, "AUDIO"],
+    [12, 5, 0, 6, 17, "H3_REFS"],
+    [13, 6, 0, 7, 0, "IMAGE"],
+    [14, 6, 1, 7, 1, "AUDIO"],
+    [15, 7, 0, 8, 0, "VIDEO"]
+  ],
+  "groups": [
+    {
+      "title": "Persistent Reference Bank",
+      "bounding": [-850, -410, 940, 1230],
+      "color": "#3f5159"
+    }
+  ],
+  "version": 0.4
+}

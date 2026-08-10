@@ -1455,6 +1455,11 @@ class H3MultishotMemorySampler:
                 "default": "simple",
                 "tooltip": "Sigma schedule. simple is the default and what "
                            "the docs measured."}),
+            "persistent_refs": ("H3_REFS", {
+                "tooltip": "Optional persistent native Ref2VA image/video/audio bank. "
+                           "Connect H3 Persistent Reference Bank; Ref2VA is required "
+                           "whenever this bank contains references.",
+            }),
         }}
 
     RETURN_TYPES = ("IMAGE", "AUDIO", "INT")
@@ -1465,7 +1470,7 @@ class H3MultishotMemorySampler:
     def run(self, model, clip, video_vae, audio_vae, script, shot_count, width,
             height, frames_per_shot, seed, steps, memory_frames, anchor_frames,
             seed_per_shot=False, start_image=None,
-            sampler_name="res_multistep", scheduler="simple"):
+            sampler_name="res_multistep", scheduler="simple", persistent_refs=None):
         import torch
         import node_helpers
         from comfy_extras import nodes_custom_sampler as ncs
@@ -1491,6 +1496,12 @@ class H3MultishotMemorySampler:
             print("[H3Memory] I2V: shot 1 starts from the supplied image; it is "
                   "also the identity anchor.", flush=True)
 
+        ref_items = list((persistent_refs or {}).get("items", []))
+        ref_blocks = list((persistent_refs or {}).get("blocks", []))
+        if ref_blocks:
+            print(f"[H3Memory] persistent refs: {(persistent_refs or {}).get('report', '')}",
+                  flush=True)
+
         for si, prompt in enumerate(shots):
             ctx = []
             if anchor is not None and anchor_frames > 0:
@@ -1515,7 +1526,12 @@ class H3MultishotMemorySampler:
                 kf = mmh3._resize(cont[:1], width, height, "disabled")
                 keyframes.append({"resolved_frame_index": 0, "image": kf})
 
-            tokens = clip.tokenize(prompt, images=images)
+            if ref_items:
+                items = list(ref_items)
+                items.extend({"type": "image", "data": image} for image in images)
+                tokens = clip.tokenize(prompt, minimax_ref_items=items)
+            else:
+                tokens = clip.tokenize(prompt, images=images)
             cond = clip.encode_from_tokens_scheduled(tokens)
             if keyframes:
                 for kf_ in keyframes:
@@ -1523,6 +1539,10 @@ class H3MultishotMemorySampler:
                 cond = node_helpers.conditioning_set_values(cond, {
                     "minimax_keyframes": keyframes,
                     "minimax_frame_count": frame_count,
+                })
+            if ref_blocks:
+                cond = node_helpers.conditioning_set_values(cond, {
+                    "minimax_refs": ref_blocks,
                 })
 
             # issue #8: separate TE device -> nothing to reclaim, keep it hot
