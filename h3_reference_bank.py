@@ -23,7 +23,15 @@ def _model_choices(variant=None):
                     files.add(os.path.relpath(os.path.join(root, name), directory))
     files = sorted(files)
     if variant:
-        matching = [name for name in files if f"minimax_h3_{variant}" in name.lower()]
+        # Community GGUF packs commonly use hyphenated names such as
+        # MiniMax-H3-FL2VA-Q5_K_M.gguf, while the official safetensors names
+        # use underscores. Both are the same H3 variant and H3ModelLoaderAny
+        # can load either one.
+        needle = f"minimax_h3_{variant}"
+        matching = [
+            name for name in files
+            if needle in name.lower().replace("-", "_")
+        ]
         if matching:
             return matching
     return files
@@ -290,14 +298,16 @@ class H3ReferenceAwareModelLoader:
                     fl2va_choices,
                     {
                         "default": "minimax_h3_fl2va_pruned_nvfp4.safetensors",
-                        "tooltip": "Used when the connected reference bank is empty.",
+                        "tooltip": "H3 FL2VA safetensors or GGUF model used when "
+                                   "the connected reference bank is empty.",
                     },
                 ),
                 "ref2va_model": (
                     ref2va_choices,
                     {
                         "default": "minimax_h3_ref2va_pruned_nvfp4.safetensors",
-                        "tooltip": "Used whenever the connected reference bank contains images, video, or audio.",
+                        "tooltip": "H3 Ref2VA safetensors or GGUF model used whenever "
+                                   "the connected reference bank contains images, video, or audio.",
                     },
                 ),
             },
