@@ -2,6 +2,7 @@
 """Disk-backed, resumable long-form MiniMax H3 Memory sampler."""
 
 import copy
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -9,6 +10,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import uuid
 import wave
 
 
@@ -25,6 +27,18 @@ def _validate_run_name(value):
     return value
 
 
+def _resolve_run_name(value):
+    value = (value or "").strip()
+    if value:
+        return _validate_run_name(value), False
+    generated = (
+        "h3_"
+        + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ_")
+        + uuid.uuid4().hex[:8]
+    )
+    return generated, True
+
+
 def _atomic_json(path, data):
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(
@@ -39,6 +53,15 @@ def _plan_hash(settings):
         settings, sort_keys=True, separators=(",", ":"), ensure_ascii=True
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _legacy_settings_match(previous, current):
+    for key, value in previous.items():
+        if key == "plan_tag" and not current.get("plan_tag"):
+            continue
+        if current.get(key) != value:
+            return False
+    return True
 
 
 def _tensor_fingerprint(tensor, sample_count=4096):
@@ -64,6 +87,12 @@ def _model_source(model):
     if model is None or not hasattr(model, "get_attachment"):
         return None
     return model.get_attachment("h3_source_model_name")
+
+
+def _model_lora_tags(model):
+    if model is None or not hasattr(model, "get_attachment"):
+        return []
+    return list(model.get_attachment("h3_lora_plan_tags") or ())
 
 
 def _clip_source(clip):
@@ -335,6 +364,29 @@ def _relative(path, root):
     return str(path.relative_to(root)).replace("\\", "/")
 
 
+def _release_process_memory():
+    import ctypes
+    import gc
+
+    gc.collect()
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
+
+    rss_gib = None
+    try:
+        for line in Path("/proc/self/status").read_text().splitlines():
+            if line.startswith("VmRSS:"):
+                rss_gib = int(line.split()[1]) / (1024 ** 2)
+                break
+    except Exception:
+        pass
+    if rss_gib is not None:
+        print(f"[H3Disk] process RSS after cleanup: {rss_gib:.2f} GiB",
+              flush=True)
+
+
 class H3MultishotMemoryDiskSampler:
     """Memory chaining with immediate segment persistence and manifest resume."""
 
@@ -346,9 +398,10 @@ class H3MultishotMemoryDiskSampler:
         schema["required"]["run_name"] = (
             "STRING",
             {
-                "default": "h3_disk_run",
+                "default": "",
                 "multiline": False,
-                "tooltip": "Stable output/manifest name used to resume this run.",
+                "tooltip": "Leave empty for a unique logged name per queue. "
+                           "Paste a prior generated name here to resume it.",
             },
         )
         schema["optional"]["resume"] = (
@@ -372,8 +425,8 @@ class H3MultishotMemoryDiskSampler:
             {
                 "default": "",
                 "multiline": False,
-                "tooltip": "Optional model/LoRA revision tag included in the "
-                           "resume fingerprint. Change it when patches change.",
+                "tooltip": "Optional manual revision note. Tracked LoRA nodes "
+                           "automatically fingerprint LoRA name and strength.",
             },
         )
         return schema
@@ -425,7 +478,9 @@ class H3MultishotMemoryDiskSampler:
             _prepare_memory_plan,
         )
 
-        run_name = _validate_run_name(run_name)
+        run_name, generated_run_name = _resolve_run_name(run_name)
+        if generated_run_name:
+            print(f"[H3Disk] auto run_name: {run_name}", flush=True)
         shots, segment_count, segment_frames = _prepare_memory_plan(
             script,
             shot_count,
@@ -461,6 +516,8 @@ class H3MultishotMemoryDiskSampler:
             ),
             "primary_model": _model_source(model),
             "ref2va_model": _model_source(ref2va_model),
+            "primary_loras": _model_lora_tags(model),
+            "ref2va_loras": _model_lora_tags(ref2va_model),
             "text_encoder": _clip_source(clip),
             "plan_tag": str(plan_tag or ""),
         }
@@ -482,10 +539,24 @@ class H3MultishotMemoryDiskSampler:
                     "a new run_name."
                 )
             if manifest.get("plan_hash") != plan_hash:
-                raise RuntimeError(
-                    f"Run {run_name!r} exists with different settings. "
-                    "Choose a new run_name instead of mixing render plans."
+                previous_settings = manifest.get("settings", {})
+                legacy_match = _legacy_settings_match(
+                    previous_settings, settings
                 )
+                if legacy_match:
+                    manifest["settings"] = settings
+                    manifest["plan_hash"] = plan_hash
+                    _atomic_json(manifest_path, manifest)
+                    print(
+                        f"[H3Disk] upgraded legacy resume fingerprint for "
+                        f"{run_name}",
+                        flush=True,
+                    )
+                else:
+                    raise RuntimeError(
+                        f"Run {run_name!r} exists with different settings. "
+                        "Choose a new run_name instead of mixing render plans."
+                    )
         else:
             existing = [path for path in root.iterdir()]
             if existing:
@@ -612,11 +683,11 @@ class H3MultishotMemoryDiskSampler:
             })
             _atomic_json(manifest_path, manifest)
             del segment
-            gc.collect()
             try:
                 model_management.soft_empty_cache()
             except Exception:
                 pass
+            _release_process_memory()
 
         segment_paths = [
             root / entry["file"] for entry in manifest["segments"]

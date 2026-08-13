@@ -86,14 +86,20 @@ See [Changelog](#changelog).
   Completed segments are never held in the returned `IMAGE`/`AUDIO` master.
   The node keeps only the anchor and recent one-frame memory tensors, then
   assembles a high-quality H.264/AAC MP4 and returns it as a disk-backed
-  `VIDEO`. `run_name` identifies the durable folder under
-  `output/H3_DISK/`; rerun with the same name and unchanged plan to resume.
-  Change `run_name` when the prompt or settings change. `keep_segments=false`
-  removes lossless MKVs after a successful final assembly while retaining the
-  manifest and PNG checkpoints. Set `plan_tag` to a concise model/LoRA
-  revision (the bundled workflow uses `penis-vagina-insert@1`); it participates
-  in the resume hash. Reference tensors, start image, base model names, and text
-  encoder name are also fingerprinted.
+  `VIDEO`. Leave `run_name` empty for a unique ID on every queue; the generated
+  name is printed in the console and becomes the folder under
+  `output/H3_DISK/`. If interrupted, paste that name into `run_name` and rerun
+  to resume. `keep_segments=false` removes lossless MKVs after successful
+  assembly while retaining the manifest and PNG checkpoints. LoRA nodes attach
+  their selected file, strength, and mode automatically. `plan_tag` is only an
+  optional manual revision note. Reference tensors, start image, base model
+  names, and text encoder name are also fingerprinted.
+
+  For long full-INT8 runs, use Spectrum `max_history=2`,
+  `history_storage=system_ram`, and `offline_smoothing_replay=false`. Spectrum
+  remains active, but avoids retaining every denoising-step feature. The disk
+  sampler also runs `malloc_trim` after every durable segment and logs process
+  RSS.
 - **H3 Optional Image (I2V on/off)** - a real toggle for an optional image
   input. A normal switch node cannot express "no image" (both branches are
   required), so turning I2V off usually ends up feeding a black placeholder

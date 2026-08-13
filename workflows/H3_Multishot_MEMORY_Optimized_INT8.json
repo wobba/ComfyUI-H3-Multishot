@@ -231,7 +231,7 @@
         true,
         2,
         1,
-        "h3_optimized_disk_run",
+        "",
         "res_multistep",
         "simple",
         "auto_speaker_aware",
@@ -241,7 +241,7 @@
         "",
         true,
         false,
-        "penis-vagina-insert@1"
+        ""
       ]
     },
     {
@@ -291,7 +291,7 @@
       "inputs": [],
       "outputs": [],
       "widgets_values": [
-        "## Optimized H3 Memory chain\n\nBoth INT8 models are patched once through **MiniMax-H3 Turbo LoRA -> Spectrum -> SageAttention3**. The sampler uses FL2VA for a segment with no routed native reference blocks and Ref2VA only when that segment uses `<Picture N>`, `<Video N>`, or active audio refs.\n\nThe LoRA nodes reproduce the validated optimized source graph. Choose the desired LoRA and strength there before rendering.\n\nPut `frame_count: N` inside each outer `---` prompt block. The sampler strips it before conditioning and uses it for that segment's latent length. A block without it uses `frames_per_shot`. Internal `[Shot N] At MM:SS.mmm` camera cuts can occur at arbitrary times inside a segment and do not need to match generation boundaries.\n\nReference loaders are muted by default. Enable and select only the assets required by the script. `auto_prompt_aware` compacts visual labels per segment. The Disk/Resume sampler writes lossless segment intermediates and PNG memory checkpoints immediately, then returns a lazy VIDEO after final assembly. Keep `run_name` stable to resume; change it for a different prompt or settings plan."
+        "## Optimized H3 Memory chain\n\nBoth INT8 models are patched once through **MiniMax-H3 Turbo LoRA -> Spectrum -> SageAttention3**. The sampler uses FL2VA for a segment with no routed native reference blocks and Ref2VA only when that segment uses `<Picture N>`, `<Video N>`, or active audio refs.\n\nThe LoRA nodes reproduce the validated optimized source graph. Choose the desired LoRA and strength there before rendering.\n\nPut `frame_count: N` inside each outer `---` prompt block. The sampler strips it before conditioning and uses it for that segment's latent length. A block without it uses `frames_per_shot`. Internal `[Shot N] At MM:SS.mmm` camera cuts can occur at arbitrary times inside a segment and do not need to match generation boundaries.\n\nReference loaders are muted by default. Enable and select only the assets required by the script. `auto_prompt_aware` compacts visual labels per segment. The Disk/Resume sampler writes lossless segment intermediates and PNG memory checkpoints immediately, then returns a lazy VIDEO after final assembly. Leave `run_name` empty for a unique logged name on every queue. If interrupted, paste that name back into the widget to resume. LoRA identity is fingerprinted automatically; `plan_tag` is only an optional manual note."
       ],
       "color": "#24364b",
       "bgcolor": "#13202f"
@@ -520,13 +520,13 @@
         0.75,
         1,
         1,
-        8,
+        2,
         false,
         "system_ram",
         true,
         false,
         false,
-        true,
+        false,
         0,
         "system_ram",
         "off",
@@ -664,13 +664,13 @@
         0.75,
         1,
         1,
-        8,
+        2,
         false,
         "system_ram",
         true,
         false,
         false,
-        true,
+        false,
         0,
         "system_ram",
         "off",

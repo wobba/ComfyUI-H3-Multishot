@@ -117,6 +117,12 @@ def test_disk_manifest_helpers():
     assert disk._plan_hash({"b": 2, "a": 1}) == disk._plan_hash(
         {"a": 1, "b": 2}
     )
+    generated, was_generated = disk._resolve_run_name("")
+    assert was_generated and generated.startswith("h3_")
+    assert disk._legacy_settings_match(
+        {"seed": 1, "plan_tag": "old-manual-tag"},
+        {"seed": 1, "plan_tag": "", "primary_loras": ["auto"]},
+    )
     import torch
     assert disk._tensor_fingerprint(torch.zeros(1, 8)) != (
         disk._tensor_fingerprint(torch.ones(1, 8))

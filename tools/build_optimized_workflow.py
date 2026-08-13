@@ -64,13 +64,13 @@ def spectrum_node(node_id, title, input_link, output_link, x, y):
             0.75,
             1,
             1,
-            8,
+            2,
             False,
             "system_ram",
             True,
             False,
             False,
-            True,
+            False,
             0,
             "system_ram",
             "off",
@@ -152,7 +152,7 @@ def main():
         True,
         2,
         1,
-        "h3_optimized_disk_run",
+        "",
         "res_multistep",
         "simple",
         "auto_speaker_aware",
@@ -162,7 +162,7 @@ def main():
         "",
         True,
         False,
-        "penis-vagina-insert@1",
+        "",
     ]
 
     nodes[2]["pos"] = [-1460, 1080]
@@ -219,8 +219,10 @@ def main():
             "assets required by the script. `auto_prompt_aware` compacts visual "
             "labels per segment. The Disk/Resume sampler writes lossless segment "
             "intermediates and PNG memory checkpoints immediately, then returns "
-            "a lazy VIDEO after final assembly. Keep `run_name` stable to resume; "
-            "change it for a different prompt or settings plan."
+            "a lazy VIDEO after final assembly. Leave `run_name` empty for a "
+            "unique logged name on every queue. If interrupted, paste that name "
+            "back into the widget to resume. LoRA identity is fingerprinted "
+            "automatically; `plan_tag` is only an optional manual note."
         )
     ]
 
