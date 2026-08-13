@@ -1,0 +1,859 @@
+{
+  "id": "h3-memory-optimized-int8-variable",
+  "revision": 0,
+  "last_node_id": 21,
+  "last_link_id": 19,
+  "nodes": [
+    {
+      "id": 2,
+      "type": "H3ClipLoaderAny",
+      "pos": [
+        -1460,
+        1080
+      ],
+      "size": [
+        390,
+        90
+      ],
+      "title": "MiniMax H3 Text Encoder",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            7
+          ]
+        }
+      ],
+      "widgets_values": [
+        "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+        "minimax"
+      ]
+    },
+    {
+      "id": 3,
+      "type": "VAELoader",
+      "pos": [
+        -1010,
+        1080
+      ],
+      "size": [
+        390,
+        70
+      ],
+      "title": "Video VAE",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            8,
+            10
+          ]
+        }
+      ],
+      "widgets_values": [
+        "minimax_h3_video_vae_fp16.safetensors"
+      ]
+    },
+    {
+      "id": 4,
+      "type": "VAELoader",
+      "pos": [
+        -1010,
+        1180
+      ],
+      "size": [
+        390,
+        70
+      ],
+      "title": "Audio VAE",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            9,
+            11
+          ]
+        }
+      ],
+      "widgets_values": [
+        "minimax_h3_audio_vae_fp32.safetensors"
+      ]
+    },
+    {
+      "id": 5,
+      "type": "H3PersistentReferenceBank",
+      "pos": [
+        -550,
+        1080
+      ],
+      "size": [
+        440,
+        340
+      ],
+      "title": "Persistent Native Reference Bank",
+      "inputs": [
+        {
+          "name": "video_vae",
+          "type": "VAE",
+          "link": 10
+        },
+        {
+          "name": "audio_vae",
+          "type": "VAE",
+          "link": 11
+        },
+        {
+          "name": "ref_image_1",
+          "type": "IMAGE",
+          "link": 13
+        },
+        {
+          "name": "ref_image_2",
+          "type": "IMAGE",
+          "link": 14
+        },
+        {
+          "name": "ref_image_3",
+          "type": "IMAGE",
+          "link": 15
+        },
+        {
+          "name": "ref_audio_1",
+          "type": "AUDIO",
+          "link": 16
+        }
+      ],
+      "outputs": [
+        {
+          "name": "persistent_refs",
+          "type": "H3_REFS",
+          "links": [
+            12
+          ]
+        },
+        {
+          "name": "has_references",
+          "type": "BOOLEAN",
+          "links": null
+        },
+        {
+          "name": "reference_report",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "widgets_values": [
+        960,
+        544,
+        243,
+        "match",
+        12
+      ]
+    },
+    {
+      "id": 6,
+      "type": "H3MultishotMemorySampler",
+      "pos": [
+        300,
+        -120
+      ],
+      "size": [
+        590,
+        720
+      ],
+      "title": "Optimized Variable-Duration Memory Chain",
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 3
+        },
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 7
+        },
+        {
+          "name": "video_vae",
+          "type": "VAE",
+          "link": 8
+        },
+        {
+          "name": "audio_vae",
+          "type": "VAE",
+          "link": 9
+        },
+        {
+          "name": "persistent_refs",
+          "type": "H3_REFS",
+          "link": 12
+        },
+        {
+          "name": "ref2va_model",
+          "type": "MODEL",
+          "link": 6
+        }
+      ],
+      "outputs": [
+        {
+          "name": "master_frames",
+          "type": "IMAGE",
+          "links": [
+            17
+          ]
+        },
+        {
+          "name": "master_audio",
+          "type": "AUDIO",
+          "links": [
+            18
+          ]
+        },
+        {
+          "name": "shots_rendered",
+          "type": "INT",
+          "links": null
+        }
+      ],
+      "widgets_values": [
+        "[Shot 1] A cinematic establishing shot with no native references.\noverall_soundscape: Natural ambience.\nnon_diegetic_music: N/A.\n---\n<Picture 1> is the referenced subject. [Shot 1] The referenced subject continues in a medium shot.\noverall_soundscape: Natural ambience continues.\nnon_diegetic_music: N/A.\n---\n[Shot 1] Continue directly from the preceding final frame. [Shot 2] At 00:04.000, cut to a close-up.\noverall_soundscape: Natural ambience continues.\nnon_diegetic_music: N/A.",
+        0,
+        960,
+        544,
+        243,
+        0,
+        "randomize",
+        20,
+        true,
+        2,
+        1,
+        "res_multistep",
+        "simple",
+        "auto_speaker_aware",
+        "",
+        "124|243|362",
+        "auto_prompt_aware",
+        ""
+      ]
+    },
+    {
+      "id": 7,
+      "type": "CreateVideo",
+      "pos": [
+        720,
+        90
+      ],
+      "size": [
+        280,
+        100
+      ],
+      "title": "Mux H3 Video and Audio",
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 17
+        },
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "link": 18
+        }
+      ],
+      "outputs": [
+        {
+          "name": "VIDEO",
+          "type": "VIDEO",
+          "links": [
+            19
+          ]
+        }
+      ],
+      "widgets_values": [
+        24,
+        8
+      ]
+    },
+    {
+      "id": 8,
+      "type": "SaveVideo",
+      "pos": [
+        1040,
+        90
+      ],
+      "size": [
+        300,
+        100
+      ],
+      "title": "Save Persistent Reference Master",
+      "inputs": [
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "link": 19
+        }
+      ],
+      "outputs": [
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
+        }
+      ],
+      "widgets_values": [
+        "video/H3MULTI/PERSISTENT_REFS",
+        "auto",
+        "auto"
+      ]
+    },
+    {
+      "id": 9,
+      "type": "MarkdownNote",
+      "pos": [
+        300,
+        -560
+      ],
+      "size": [
+        760,
+        390
+      ],
+      "title": "Optimized variable-duration routing",
+      "inputs": [],
+      "outputs": [],
+      "widgets_values": [
+        "## Optimized H3 Memory chain\n\nBoth INT8 models are patched once through **Spectrum -> SageAttention3**. The sampler uses FL2VA for a segment with no routed native reference blocks and Ref2VA only when that segment uses `<Picture N>`, `<Video N>`, or active audio refs.\n\nFor a content or Turbo LoRA, insert Larryvrh's MiniMax-H3 Turbo LoRA loader before Spectrum on the model path that needs it. The baseline has no LoRA because Spectrum and SageAttention3 provide the measured speedup.\n\n`frame_schedule` maps one-to-one to outer `---` generation segments. Blank or missing entries use `frames_per_shot`. Internal `[Shot N] At MM:SS.mmm` camera cuts can occur at arbitrary times inside a segment and do not need to match generation boundaries.\n\nReference loaders are muted by default. Enable and select only the assets required by the script. `auto_prompt_aware` compacts visual labels per segment. Spectrum's default offline replay uses a second sampler pass but was retained because it matches the validated fast T2V workflow."
+      ],
+      "color": "#24364b",
+      "bgcolor": "#13202f"
+    },
+    {
+      "id": 10,
+      "type": "LoadImage",
+      "pos": [
+        -820,
+        510
+      ],
+      "size": [
+        240,
+        290
+      ],
+      "title": "Reference Image 1",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            13
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "widgets_values": [
+        "choose_reference_1.png",
+        "image"
+      ],
+      "mode": 4
+    },
+    {
+      "id": 11,
+      "type": "LoadImage",
+      "pos": [
+        -560,
+        510
+      ],
+      "size": [
+        240,
+        290
+      ],
+      "title": "Reference Image 2",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            14
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "widgets_values": [
+        "choose_reference_2.png",
+        "image"
+      ],
+      "mode": 4
+    },
+    {
+      "id": 12,
+      "type": "LoadImage",
+      "pos": [
+        -300,
+        510
+      ],
+      "size": [
+        240,
+        290
+      ],
+      "title": "Reference Image 3",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            15
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "widgets_values": [
+        "choose_reference_3.png",
+        "image"
+      ],
+      "mode": 4
+    },
+    {
+      "id": 13,
+      "type": "LoadAudio",
+      "pos": [
+        -40,
+        510
+      ],
+      "size": [
+        240,
+        100
+      ],
+      "title": "Voice Reference: clean 6-12 second solo line",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "AUDIO",
+          "type": "AUDIO",
+          "links": [
+            16
+          ]
+        }
+      ],
+      "widgets_values": [
+        "choose_voice_reference.wav"
+      ],
+      "mode": 4
+    },
+    {
+      "id": 14,
+      "type": "H3ModelLoaderAny",
+      "pos": [
+        -1460,
+        -220
+      ],
+      "size": [
+        410,
+        100
+      ],
+      "title": "FL2VA INT8 - segments without native refs",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            1
+          ]
+        }
+      ],
+      "widgets_values": [
+        "minimax_h3_fl2va_int8_convrot.safetensors",
+        0
+      ]
+    },
+    {
+      "id": 16,
+      "type": "SpectrumApplyMiniMaxH3",
+      "pos": [
+        -1010,
+        -220
+      ],
+      "size": [
+        390,
+        460
+      ],
+      "title": "FL2VA Spectrum",
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "links": [
+            2
+          ]
+        }
+      ],
+      "widgets_values": [
+        true,
+        0.5,
+        1,
+        0.1,
+        2,
+        0.75,
+        1,
+        1,
+        8,
+        false,
+        "system_ram",
+        true,
+        false,
+        false,
+        true,
+        0,
+        "system_ram",
+        "off",
+        0.65
+      ]
+    },
+    {
+      "id": 17,
+      "type": "PathchSageAttentionKJ",
+      "pos": [
+        -560,
+        -220
+      ],
+      "size": [
+        350,
+        120
+      ],
+      "title": "FL2VA SageAttention3",
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            3
+          ]
+        }
+      ],
+      "widgets_values": [
+        "sageattn3",
+        false
+      ]
+    },
+    {
+      "id": 18,
+      "type": "H3ModelLoaderAny",
+      "pos": [
+        -1460,
+        430
+      ],
+      "size": [
+        410,
+        100
+      ],
+      "title": "Ref2VA INT8 - only routed native-ref segments",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            4
+          ]
+        }
+      ],
+      "widgets_values": [
+        "minimax_h3_ref2va_int8_convrot.safetensors",
+        0
+      ]
+    },
+    {
+      "id": 20,
+      "type": "SpectrumApplyMiniMaxH3",
+      "pos": [
+        -1010,
+        430
+      ],
+      "size": [
+        390,
+        460
+      ],
+      "title": "Ref2VA Spectrum",
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 4
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "links": [
+            5
+          ]
+        }
+      ],
+      "widgets_values": [
+        true,
+        0.5,
+        1,
+        0.1,
+        2,
+        0.75,
+        1,
+        1,
+        8,
+        false,
+        "system_ram",
+        true,
+        false,
+        false,
+        true,
+        0,
+        "system_ram",
+        "off",
+        0.65
+      ]
+    },
+    {
+      "id": 21,
+      "type": "PathchSageAttentionKJ",
+      "pos": [
+        -560,
+        430
+      ],
+      "size": [
+        350,
+        120
+      ],
+      "title": "Ref2VA SageAttention3",
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 5
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            6
+          ]
+        }
+      ],
+      "widgets_values": [
+        "sageattn3",
+        false
+      ]
+    }
+  ],
+  "links": [
+    [
+      1,
+      14,
+      0,
+      16,
+      0,
+      "MODEL"
+    ],
+    [
+      2,
+      16,
+      0,
+      17,
+      0,
+      "MODEL"
+    ],
+    [
+      3,
+      17,
+      0,
+      6,
+      0,
+      "MODEL"
+    ],
+    [
+      4,
+      18,
+      0,
+      20,
+      0,
+      "MODEL"
+    ],
+    [
+      5,
+      20,
+      0,
+      21,
+      0,
+      "MODEL"
+    ],
+    [
+      6,
+      21,
+      0,
+      6,
+      18,
+      "MODEL"
+    ],
+    [
+      7,
+      2,
+      0,
+      6,
+      1,
+      "CLIP"
+    ],
+    [
+      8,
+      3,
+      0,
+      6,
+      2,
+      "VAE"
+    ],
+    [
+      9,
+      4,
+      0,
+      6,
+      3,
+      "VAE"
+    ],
+    [
+      10,
+      3,
+      0,
+      5,
+      0,
+      "VAE"
+    ],
+    [
+      11,
+      4,
+      0,
+      5,
+      1,
+      "VAE"
+    ],
+    [
+      12,
+      5,
+      0,
+      6,
+      17,
+      "H3_REFS"
+    ],
+    [
+      13,
+      10,
+      0,
+      5,
+      7,
+      "IMAGE"
+    ],
+    [
+      14,
+      11,
+      0,
+      5,
+      8,
+      "IMAGE"
+    ],
+    [
+      15,
+      12,
+      0,
+      5,
+      9,
+      "IMAGE"
+    ],
+    [
+      16,
+      13,
+      0,
+      5,
+      22,
+      "AUDIO"
+    ],
+    [
+      17,
+      6,
+      0,
+      7,
+      0,
+      "IMAGE"
+    ],
+    [
+      18,
+      6,
+      1,
+      7,
+      1,
+      "AUDIO"
+    ],
+    [
+      19,
+      7,
+      0,
+      8,
+      0,
+      "VIDEO"
+    ]
+  ],
+  "groups": [
+    {
+      "title": "Optimized FL2VA and Ref2VA model chains",
+      "bounding": [
+        -1490,
+        -260,
+        1710,
+        1080
+      ],
+      "color": "#3f5159"
+    },
+    {
+      "title": "Optional persistent references",
+      "bounding": [
+        -1490,
+        1030,
+        1390,
+        830
+      ],
+      "color": "#594f3f"
+    }
+  ],
+  "version": 0.4
+}

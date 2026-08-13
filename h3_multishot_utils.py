@@ -134,6 +134,65 @@ def _parse_script(text):
     return shots
 
 
+def _parse_frame_schedule(text, segment_count, default_frames, align=None):
+    """Resolve one frame count per outer ``---`` generation segment.
+
+    Missing entries use ``default_frames`` rather than repeating the last
+    explicit value. JSON accepts null/empty entries; plain text accepts
+    delimiters such as ``124| |362``.
+    """
+    raw = (text or "").strip()
+    values = []
+    if raw:
+        try:
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                data = data.get("frames", data.get("segments", data))
+            if isinstance(data, (int, float, str)) and not isinstance(data, bool):
+                data = [data]
+            elif not isinstance(data, list):
+                raise ValueError(
+                    "frame_schedule JSON must be a list or "
+                    "{\"frames\": [...]} object"
+                )
+            values = data
+        except json.JSONDecodeError:
+            values = re.split(r"[|;,\n]", raw)
+
+    resolved = []
+    for index in range(segment_count):
+        value = values[index] if index < len(values) else None
+        if value is None or (isinstance(value, str) and not value.strip()):
+            frames = int(default_frames)
+        elif isinstance(value, bool):
+            raise ValueError(
+                f"frame_schedule entry {index + 1} must be a frame count, "
+                "not a boolean"
+            )
+        else:
+            try:
+                frames = int(value)
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    f"frame_schedule entry {index + 1} is not an integer: "
+                    f"{value!r}"
+                ) from error
+        if frames < 5:
+            raise ValueError(
+                f"frame_schedule entry {index + 1} must be at least 5 frames"
+            )
+        resolved.append(int(align(frames) if align else frames))
+
+    if len(values) > segment_count:
+        print(
+            f"[H3Memory] frame_schedule has {len(values)} entries for "
+            f"{segment_count} segments; ignoring {len(values) - segment_count} "
+            "extra value(s).",
+            flush=True,
+        )
+    return resolved
+
+
 class H3ScriptSplit:
     @classmethod
     def INPUT_TYPES(cls):
@@ -1427,7 +1486,9 @@ class H3MultishotMemorySampler:
             "width": ("INT", {"default": 960, "min": 32, "max": 4096, "step": 16}),
             "height": ("INT", {"default": 544, "min": 32, "max": 4096, "step": 16}),
             "frames_per_shot": ("INT", {"default": 243, "min": 5, "max": 1000,
-                "tooltip": "Snaps to H3's 17k+5 grid. 243 = ~10.1s @24fps."}),
+                "tooltip": "Default for every segment without an explicit "
+                           "frame_schedule entry. Snaps to H3's 17k+5 grid. "
+                           "243 = ~10.1s @24fps."}),
             "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
             "steps": ("INT", {"default": 20, "min": 1, "max": 50}),
             "seed_per_shot": ("BOOLEAN", {
@@ -1460,6 +1521,11 @@ class H3MultishotMemorySampler:
                            "Connect H3 Persistent Reference Bank; Ref2VA is required "
                            "whenever this bank contains references.",
             }),
+            "ref2va_model": ("MODEL", {
+                "tooltip": "Optional separately optimized Ref2VA model. The sampler "
+                           "uses it only for segments whose routed native reference "
+                           "bank is non-empty; all other segments use model.",
+            }),
             "audio_reference_mode": (["always", "auto_speaker_aware", "schedule"], {
                 "default": "always",
                 "tooltip": "Always preserves every audio reference. Auto keeps only "
@@ -1474,6 +1540,31 @@ class H3MultishotMemorySampler:
                            "or '[2, 2, 1]'. Active audio is locally renumbered "
                            "to <Audio 1..N> for that shot.",
             }),
+            # New widgets stay after every pre-existing widget. Classic
+            # ComfyUI workflows serialize widget values positionally.
+            "frame_schedule": ("STRING", {
+                "default": "",
+                "multiline": False,
+                "tooltip": "Optional frames per --- segment, e.g. '124|243|362'. "
+                           "Blank or missing entries use frames_per_shot. Values "
+                           "are aligned to H3's 17n+5 frame grid.",
+            }),
+            "visual_reference_mode": (
+                ["always", "auto_prompt_aware", "schedule"],
+                {
+                    "default": "always",
+                    "tooltip": "Always sends all image/video refs. Auto sends only "
+                               "<Picture N>/<Video N> labels named by this segment. "
+                               "Schedule uses visual_reference_schedule.",
+                },
+            ),
+            "visual_reference_schedule": ("STRING", {
+                "default": "",
+                "multiline": False,
+                "tooltip": "Per-segment visual refs, e.g. 'P1,V1|none|P2'. "
+                           "Labels are compacted and rewritten locally. If the "
+                           "schedule ends early, trailing segments use no visuals.",
+            }),
         }}
 
     RETURN_TYPES = ("IMAGE", "AUDIO", "INT")
@@ -1485,6 +1576,8 @@ class H3MultishotMemorySampler:
             height, frames_per_shot, seed, steps, memory_frames, anchor_frames,
             seed_per_shot=False, start_image=None,
             sampler_name="res_multistep", scheduler="simple", persistent_refs=None,
+            ref2va_model=None, frame_schedule="",
+            visual_reference_mode="always", visual_reference_schedule="",
             audio_reference_mode="always", audio_reference_schedule=""):
         import torch
         import node_helpers
@@ -1500,8 +1593,20 @@ class H3MultishotMemorySampler:
         while len(shots) < n:
             shots.append(shots[-1])
 
-        sigmas = ncs.BasicScheduler().get_sigmas(model, scheduler, steps, 1.0)[0]
         sampler = ncs.KSamplerSelect().get_sampler(sampler_name)[0]
+        segment_frames = _parse_frame_schedule(
+            frame_schedule,
+            n,
+            frames_per_shot,
+            mmh3.align_frame_count,
+        )
+        print(
+            "[H3Memory] segment frame schedule: "
+            + " | ".join(
+                f"{frames} ({frames / 24.0:.2f}s)" for frames in segment_frames
+            ),
+            flush=True,
+        )
 
         frames_parts, audio_parts = [], []
         sr = None
@@ -1516,6 +1621,7 @@ class H3MultishotMemorySampler:
                   flush=True)
 
         for si, prompt in enumerate(shots):
+            current_frames = segment_frames[si]
             ctx = []
             if anchor is not None and anchor_frames > 0:
                 ctx.append(anchor)
@@ -1526,13 +1632,13 @@ class H3MultishotMemorySampler:
 
             print("[H3Memory] shot %d/%d (%df @ %dx%d) | memory: %d frame(s) "
                   "(anchor=%s, recent=%d)" % (
-                      si + 1, n, frames_per_shot, width, height, len(images),
+                      si + 1, n, current_frames, width, height, len(images),
                       "yes" if (anchor is not None and anchor_frames > 0) else "no",
                       min(memory_frames, len(history)) if memory_frames > 0
                       else min(1, len(history))), flush=True)
 
             latent, frame_count = mmh3._empty_av_latent(width, height,
-                                                        frames_per_shot)
+                                                        current_frames)
             keyframes = []
             cont = history[-1] if history else anchor
             if cont is not None:
@@ -1546,6 +1652,8 @@ class H3MultishotMemorySampler:
                 si,
                 audio_reference_mode,
                 audio_reference_schedule,
+                visual_reference_mode,
+                visual_reference_schedule,
             )
             if ref_items:
                 print(f"[H3Memory] shot {si + 1} reference routing: {route_report}",
@@ -1568,9 +1676,25 @@ class H3MultishotMemorySampler:
                     "minimax_refs": ref_blocks,
                 })
 
+            current_model = (
+                ref2va_model
+                if ref_blocks and ref2va_model is not None
+                else model
+            )
+            model_mode = (
+                "Ref2VA"
+                if ref_blocks and ref2va_model is not None
+                else "primary"
+            )
+            print(
+                f"[H3Memory] segment {si + 1} model route: {model_mode}; "
+                f"native reference blocks={len(ref_blocks)}",
+                flush=True,
+            )
+
             # issue #8: separate TE device -> nothing to reclaim, keep it hot
             _te_dev = getattr(clip.patcher, "load_device", None)
-            _dit_dev = getattr(model, "load_device", None)
+            _dit_dev = getattr(current_model, "load_device", None)
             if (_te_dev is not None and _dit_dev is not None
                     and str(_te_dev) != str(_dit_dev)):
                 if si == 0:
@@ -1590,7 +1714,10 @@ class H3MultishotMemorySampler:
                 except Exception:
                     pass
 
-            guider = ncs.BasicGuider().get_guider(model, cond)[0]
+            sigmas = ncs.BasicScheduler().get_sigmas(
+                current_model, scheduler, steps, 1.0
+            )[0]
+            guider = ncs.BasicGuider().get_guider(current_model, cond)[0]
             shot_seed = (seed + si) if seed_per_shot else seed
             noise = ncs.RandomNoise().get_noise(shot_seed)[0]
             _mb = _auto_measure_begin()
@@ -1601,7 +1728,7 @@ class H3MultishotMemorySampler:
                 # record even on interrupt/OOM: the peak up to that moment is
                 # a valid LOWER bound on the pool, and the cache only grows -
                 # an aborted thrashing run should still teach the next one
-                _auto_measure_end(_mb, model)
+                _auto_measure_end(_mb, current_model)
 
             lat = out["samples"]
             if getattr(lat, "is_nested", False):

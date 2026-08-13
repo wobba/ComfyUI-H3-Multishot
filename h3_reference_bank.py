@@ -37,6 +37,12 @@ def _model_choices(variant=None):
     return files
 
 
+def _preferred_default(choices, preferred):
+    if preferred in choices or not choices:
+        return preferred
+    return choices[0]
+
+
 def _prepare_audio(audio_vae, audio, max_seconds):
     import torchaudio
 
@@ -159,6 +165,8 @@ class H3PersistentReferenceBank:
         blocks = []
         entries = []
         report = []
+        picture_count = 0
+        video_count = 0
 
         for index in range(1, MAX_IMAGES + 1):
             image = references.get(f"ref_image_{index}")
@@ -189,8 +197,16 @@ class H3PersistentReferenceBank:
             }
             items.append(item)
             blocks.append(block)
-            entries.append({"kind": "image", "items": [item], "blocks": [block]})
-            report.append(f"Picture {sum(item['type'] == 'image' for item in items)}")
+            picture_count += 1
+            entries.append(
+                {
+                    "kind": "image",
+                    "items": [item],
+                    "blocks": [block],
+                    "picture_label": picture_count,
+                }
+            )
+            report.append(f"Picture {picture_count}")
 
         for index in range(1, MAX_VIDEOS + 1):
             video = references.get(f"ref_video_{index}")
@@ -244,6 +260,7 @@ class H3PersistentReferenceBank:
             }
             items.append(video_item)
             blocks.append(block)
+            video_count += 1
             entries.append(
                 {
                     "kind": "video",
@@ -251,9 +268,10 @@ class H3PersistentReferenceBank:
                     "blocks": [block],
                     "video_item": video_item,
                     "audio_label": audio_label,
+                    "video_label": video_count,
                 }
             )
-            report.append(f"Video {index}")
+            report.append(f"Video {video_count}")
 
         for index in range(1, MAX_AUDIOS + 1):
             audio = references.get(f"ref_audio_{index}")
@@ -297,7 +315,10 @@ class H3ReferenceAwareModelLoader:
                 "fl2va_model": (
                     fl2va_choices,
                     {
-                        "default": "minimax_h3_fl2va_pruned_nvfp4.safetensors",
+                        "default": _preferred_default(
+                            fl2va_choices,
+                            "minimax_h3_fl2va_int8_convrot.safetensors",
+                        ),
                         "tooltip": "H3 FL2VA safetensors or GGUF model used when "
                                    "the connected reference bank is empty.",
                     },
@@ -305,7 +326,10 @@ class H3ReferenceAwareModelLoader:
                 "ref2va_model": (
                     ref2va_choices,
                     {
-                        "default": "minimax_h3_ref2va_pruned_nvfp4.safetensors",
+                        "default": _preferred_default(
+                            ref2va_choices,
+                            "minimax_h3_ref2va_int8_convrot.safetensors",
+                        ),
                         "tooltip": "H3 Ref2VA safetensors or GGUF model used whenever "
                                    "the connected reference bank contains images, video, or audio.",
                     },

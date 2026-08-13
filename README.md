@@ -55,6 +55,21 @@ See [Changelog](#changelog).
   the piece plus the last N shot-end frames. The anchor never changes, so drift
   cannot compound. Knobs: `anchor_frames` (1 = on, the long-chain fix) and
   `memory_frames` (recent frames, 0 = stock behaviour).
+  - **Variable segment duration:** `frame_schedule` accepts one count per
+    outer `---` block, for example `124|243|362`. A blank or missing entry
+    uses `frames_per_shot`; every resolved value is aligned to H3's `17n+5`
+    grid. This does not constrain camera-cut timing: `[Shot N] At MM:SS.mmm`
+    remains free to place cuts anywhere inside each generated segment.
+  - **Per-segment FL2VA / Ref2VA:** connect an independently patched Ref2VA
+    model to `ref2va_model`. Segments with routed native reference blocks use
+    Ref2VA; segments without them use the primary FL2VA `model`. Both model
+    inputs can pass through the same Spectrum and SageAttention3 optimization
+    chain before reaching the sampler. An optional LoRA loader belongs before
+    Spectrum on whichever model path needs it.
+  - **Per-segment visual references:** `visual_reference_mode` can retain all
+    refs, select only `<Picture N>` / `<Video N>` tags present in that segment,
+    or use an explicit schedule such as `P1,V1|none|P2`. Selected labels are
+    compacted and rewritten to the local H3 reference order.
 - **H3 Optional Image (I2V on/off)** - a real toggle for an optional image
   input. A normal switch node cannot express "no image" (both branches are
   required), so turning I2V off usually ends up feeding a black placeholder
@@ -135,6 +150,8 @@ held across both seams. This video was made BY the workflow it demonstrates.
 
 - `frames_per_shot` sits on H3's 17k+5 frame grid (243 = ~10.1s at 24fps;
   362 = ~15.1s, the trained max - beyond is untested but functional).
+- `frame_schedule` overrides that default per `---` segment. Internal camera
+  cuts do not need to match generation boundaries.
 - Malformed JSON scripts fail loudly instead of rendering the raw text.
 - **Resolution:** H3 is happiest at its native size. Rendering natively at
   1920x1088 measured *worse* than 960x544 in blind review (softer detail, and
