@@ -105,7 +105,34 @@ def test_reference_routing():
     assert blocks == []
 
 
+def test_disk_manifest_helpers():
+    disk = load_module("h3_disk_sampler")
+    assert disk._validate_run_name("movie-01_take.2") == "movie-01_take.2"
+    try:
+        disk._validate_run_name("../escape")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("unsafe run_name was accepted")
+    assert disk._plan_hash({"b": 2, "a": 1}) == disk._plan_hash(
+        {"a": 1, "b": 2}
+    )
+    import torch
+    assert disk._tensor_fingerprint(torch.zeros(1, 8)) != (
+        disk._tensor_fingerprint(torch.ones(1, 8))
+    )
+
+    bank = load_module("h3_reference_bank")
+    import hashlib
+    first = hashlib.sha256()
+    second = hashlib.sha256()
+    bank._update_tensor_fingerprint(first, "image:1", torch.zeros(1, 4, 4, 3))
+    bank._update_tensor_fingerprint(second, "image:1", torch.ones(1, 4, 4, 3))
+    assert first.hexdigest() != second.hexdigest()
+
+
 if __name__ == "__main__":
     test_frame_schedule()
     test_reference_routing()
+    test_disk_manifest_helpers()
     print("Variable multishot tests passed.")

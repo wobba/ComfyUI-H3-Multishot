@@ -534,6 +534,7 @@ class H3ModelLoaderAny:
     def load(self, model_name, activation_reserve_gb=0.0):
         out = self._load_inner(model_name)
         patcher = out[0]
+        patcher.set_attachments("h3_source_model_name", model_name)
         if activation_reserve_gb and activation_reserve_gb > 0:
             _cap = int(activation_reserve_gb * (1024 ** 3))
             # Must live on the inner BaseModel, not the ModelPatcher: LoRA
@@ -822,7 +823,9 @@ class H3ClipLoaderAny:
         import sys
         import nodes as core_nodes
         if not clip_name.lower().endswith(".gguf"):
-            return core_nodes.CLIPLoader().load_clip(clip_name, type=type)
+            out = core_nodes.CLIPLoader().load_clip(clip_name, type=type)
+            out[0].patcher.set_attachments("h3_source_clip_name", clip_name)
+            return out
 
         gg_cls = core_nodes.NODE_CLASS_MAPPINGS.get("CLIPLoaderGGUF")
         if gg_cls is None:
@@ -891,6 +894,7 @@ class H3ClipLoaderAny:
             embedding_directory=folder_paths.get_folder_paths("embeddings"),
         )
         clip.patcher = gg.GGUFModelPatcher.clone(clip.patcher)
+        clip.patcher.set_attachments("h3_source_clip_name", clip_name)
         return (clip,)
 
 
@@ -1513,6 +1517,256 @@ class H3MultishotSampler:
 
 
 
+def _prepare_memory_plan(script, shot_count, frames_per_shot, frame_schedule,
+                         align_frame_count):
+    shots = _parse_script(script)
+    n = shot_count if shot_count > 0 else len(shots)
+    if len(shots) > n:
+        shots = shots[:n]
+    while len(shots) < n:
+        shots.append(shots[-1])
+    shots, segment_frames = _resolve_segment_frames(
+        shots, frame_schedule, frames_per_shot, align_frame_count
+    )
+    print(
+        "[H3Memory] segment frame schedule: "
+        + " | ".join(
+            f"{frames} ({frames / 24.0:.2f}s)" for frames in segment_frames
+        ),
+        flush=True,
+    )
+    return shots, n, segment_frames
+
+
+def _iter_memory_segments(
+    model,
+    clip,
+    video_vae,
+    audio_vae,
+    shots,
+    segment_frames,
+    width,
+    height,
+    seed,
+    steps,
+    memory_frames,
+    anchor_frames,
+    seed_per_shot,
+    sampler_name,
+    scheduler,
+    persistent_refs,
+    ref2va_model,
+    visual_reference_mode,
+    visual_reference_schedule,
+    audio_reference_mode,
+    audio_reference_schedule,
+    start_index=0,
+    anchor=None,
+    history=None,
+    announce_start_image=False,
+    trim_audio_seam=True,
+):
+    """Yield decoded segments while retaining only anchor and recent frames."""
+    import gc
+    import torch
+    import node_helpers
+    from comfy_extras import nodes_custom_sampler as ncs
+    from comfy_extras import nodes_minimax_h3 as mmh3
+    from comfy_extras.nodes_audio import vae_decode_audio
+    import comfy.model_management as _mm
+
+    n = len(shots)
+    history = list(history or [])
+    sampler = ncs.KSamplerSelect().get_sampler(sampler_name)[0]
+
+    if announce_start_image and anchor is not None:
+        print("[H3Memory] I2V: shot 1 starts from the supplied image; it is "
+              "also the identity anchor.", flush=True)
+    if (persistent_refs or {}).get("blocks"):
+        print(f"[H3Memory] persistent refs: "
+              f"{(persistent_refs or {}).get('report', '')}", flush=True)
+
+    for si in range(start_index, n):
+        prompt = shots[si]
+        current_frames = segment_frames[si]
+        ctx = []
+        if anchor is not None and anchor_frames > 0:
+            ctx.append(anchor)
+        if history:
+            take = memory_frames if memory_frames > 0 else 1
+            ctx.extend(history[-take:])
+        images = [
+            mmh3._resize(context[:1], width, height, "disabled")
+            for context in ctx
+        ]
+
+        print("[H3Memory] shot %d/%d (%df @ %dx%d) | memory: %d frame(s) "
+              "(anchor=%s, recent=%d)" % (
+                  si + 1, n, current_frames, width, height, len(images),
+                  "yes" if (anchor is not None and anchor_frames > 0) else "no",
+                  min(memory_frames, len(history)) if memory_frames > 0
+                  else min(1, len(history))), flush=True)
+
+        latent, frame_count = mmh3._empty_av_latent(
+            width, height, current_frames
+        )
+        keyframes = []
+        continuation = history[-1] if history else anchor
+        if continuation is not None:
+            keyframe = mmh3._resize(
+                continuation[:1], width, height, "disabled"
+            )
+            keyframes.append(
+                {"resolved_frame_index": 0, "image": keyframe}
+            )
+
+        from .h3_reference_routing import route_reference_bank
+        shot_prompt, ref_items, ref_blocks, route_report = route_reference_bank(
+            persistent_refs,
+            prompt,
+            si,
+            audio_reference_mode,
+            audio_reference_schedule,
+            visual_reference_mode,
+            visual_reference_schedule,
+        )
+        if ref_items:
+            print(f"[H3Memory] shot {si + 1} reference routing: "
+                  f"{route_report}", flush=True)
+            items = list(ref_items)
+            items.extend(
+                {"type": "image", "data": image} for image in images
+            )
+            tokens = clip.tokenize(
+                shot_prompt, minimax_ref_items=items
+            )
+        else:
+            tokens = clip.tokenize(shot_prompt, images=images)
+        cond = clip.encode_from_tokens_scheduled(tokens)
+        if keyframes:
+            for keyframe in keyframes:
+                keyframe["latent"] = video_vae.encode(
+                    keyframe.pop("image")
+                )
+            cond = node_helpers.conditioning_set_values(cond, {
+                "minimax_keyframes": keyframes,
+                "minimax_frame_count": frame_count,
+            })
+        if ref_blocks:
+            cond = node_helpers.conditioning_set_values(cond, {
+                "minimax_refs": ref_blocks,
+            })
+
+        current_model = (
+            ref2va_model
+            if ref_blocks and ref2va_model is not None
+            else model
+        )
+        model_mode = (
+            "Ref2VA"
+            if ref_blocks and ref2va_model is not None
+            else "primary"
+        )
+        print(
+            f"[H3Memory] segment {si + 1} model route: {model_mode}; "
+            f"native reference blocks={len(ref_blocks)}",
+            flush=True,
+        )
+
+        text_device = getattr(clip.patcher, "load_device", None)
+        dit_device = getattr(current_model, "load_device", None)
+        if (text_device is not None and dit_device is not None
+                and str(text_device) != str(dit_device)):
+            if si == start_index:
+                print(f"[H3Memory] TE on {text_device}, DiT on {dit_device} - "
+                      f"separate devices, TE stays resident.", flush=True)
+        else:
+            try:
+                clip.patcher.model.to(_mm.text_encoder_offload_device())
+            except Exception:
+                pass
+            try:
+                device = _mm.get_torch_device()
+                _mm.free_memory(_mm.get_total_memory(device) * 0.9, device)
+                _mm.soft_empty_cache()
+                print("[H3Memory] TE evicted; %.1f GB free for the DiT"
+                      % (_mm.get_free_memory(device) / (1024 ** 3)),
+                      flush=True)
+            except Exception:
+                pass
+
+        sigmas = ncs.BasicScheduler().get_sigmas(
+            current_model, scheduler, steps, 1.0
+        )[0]
+        guider = ncs.BasicGuider().get_guider(current_model, cond)[0]
+        shot_seed = (seed + si) if seed_per_shot else seed
+        noise = ncs.RandomNoise().get_noise(shot_seed)[0]
+        measurement = _auto_measure_begin()
+        try:
+            out, _denoised = ncs.SamplerCustomAdvanced().sample(
+                noise, guider, sampler, sigmas, latent
+            )
+        finally:
+            _auto_measure_end(measurement, current_model)
+
+        samples = out["samples"]
+        if getattr(samples, "is_nested", False):
+            samples = samples.unbind()[0]
+        imgs = video_vae.decode(samples)
+        if imgs.ndim == 5:
+            imgs = imgs.reshape(
+                -1, imgs.shape[-3], imgs.shape[-2], imgs.shape[-1]
+            )
+        decoded_audio = vae_decode_audio(audio_vae, out)
+        sample_rate = decoded_audio["sample_rate"]
+        waveform = decoded_audio["waveform"]
+
+        if anchor is None and anchor_frames > 0:
+            anchor = imgs[:1].clone()
+            print("[H3Memory] identity anchor set from shot 1 frame 1.",
+                  flush=True)
+        history.append(imgs[-1:].clone())
+        if len(history) > 8:
+            history.pop(0)
+
+        if si > 0:
+            imgs = imgs[1:]
+            if trim_audio_seam:
+                trim = int(round(sample_rate / 24.0))
+                waveform = waveform[..., trim:]
+
+        yield {
+            "index": si,
+            "images": imgs,
+            "waveform": waveform,
+            "sample_rate": sample_rate,
+            "anchor": anchor,
+            "history": list(history),
+            "model_mode": model_mode,
+            "route_report": route_report,
+        }
+
+        del (
+            imgs,
+            waveform,
+            decoded_audio,
+            samples,
+            out,
+            latent,
+            cond,
+            tokens,
+            sigmas,
+            guider,
+            noise,
+            images,
+        )
+        gc.collect()
+        try:
+            _mm.soft_empty_cache()
+        except Exception:
+            pass
+
+
 class H3MultishotMemorySampler:
     """Long-form multishot with a memory bank.
 
@@ -1646,178 +1900,49 @@ class H3MultishotMemorySampler:
             visual_reference_mode="always", visual_reference_schedule="",
             audio_reference_mode="always", audio_reference_schedule=""):
         import torch
-        import node_helpers
-        from comfy_extras import nodes_custom_sampler as ncs
         from comfy_extras import nodes_minimax_h3 as mmh3
-        from comfy_extras.nodes_audio import vae_decode_audio
-        import comfy.model_management as _mm
 
-        shots = _parse_script(script)
-        n = shot_count if shot_count > 0 else len(shots)
-        if len(shots) > n:
-            shots = shots[:n]
-        while len(shots) < n:
-            shots.append(shots[-1])
-
-        sampler = ncs.KSamplerSelect().get_sampler(sampler_name)[0]
-        shots, segment_frames = _resolve_segment_frames(
-            shots, frame_schedule, frames_per_shot, mmh3.align_frame_count
+        shots, n, segment_frames = _prepare_memory_plan(
+            script,
+            shot_count,
+            frames_per_shot,
+            frame_schedule,
+            mmh3.align_frame_count,
         )
-        print(
-            "[H3Memory] segment frame schedule: "
-            + " | ".join(
-                f"{frames} ({frames / 24.0:.2f}s)" for frames in segment_frames
-            ),
-            flush=True,
-        )
-
         frames_parts, audio_parts = [], []
         sr = None
-        history = []
         anchor = start_image[:1] if start_image is not None else None
-        if anchor is not None:
-            print("[H3Memory] I2V: shot 1 starts from the supplied image; it is "
-                  "also the identity anchor.", flush=True)
-
-        if (persistent_refs or {}).get("blocks"):
-            print(f"[H3Memory] persistent refs: {(persistent_refs or {}).get('report', '')}",
-                  flush=True)
-
-        for si, prompt in enumerate(shots):
-            current_frames = segment_frames[si]
-            ctx = []
-            if anchor is not None and anchor_frames > 0:
-                ctx.append(anchor)
-            if history:
-                take = memory_frames if memory_frames > 0 else 1
-                ctx.extend(history[-take:])
-            images = [mmh3._resize(c[:1], width, height, "disabled") for c in ctx]
-
-            print("[H3Memory] shot %d/%d (%df @ %dx%d) | memory: %d frame(s) "
-                  "(anchor=%s, recent=%d)" % (
-                      si + 1, n, current_frames, width, height, len(images),
-                      "yes" if (anchor is not None and anchor_frames > 0) else "no",
-                      min(memory_frames, len(history)) if memory_frames > 0
-                      else min(1, len(history))), flush=True)
-
-            latent, frame_count = mmh3._empty_av_latent(width, height,
-                                                        current_frames)
-            keyframes = []
-            cont = history[-1] if history else anchor
-            if cont is not None:
-                kf = mmh3._resize(cont[:1], width, height, "disabled")
-                keyframes.append({"resolved_frame_index": 0, "image": kf})
-
-            from .h3_reference_routing import route_reference_bank
-            shot_prompt, ref_items, ref_blocks, route_report = route_reference_bank(
-                persistent_refs,
-                prompt,
-                si,
-                audio_reference_mode,
-                audio_reference_schedule,
-                visual_reference_mode,
-                visual_reference_schedule,
-            )
-            if ref_items:
-                print(f"[H3Memory] shot {si + 1} reference routing: {route_report}",
-                      flush=True)
-                items = list(ref_items)
-                items.extend({"type": "image", "data": image} for image in images)
-                tokens = clip.tokenize(shot_prompt, minimax_ref_items=items)
-            else:
-                tokens = clip.tokenize(shot_prompt, images=images)
-            cond = clip.encode_from_tokens_scheduled(tokens)
-            if keyframes:
-                for kf_ in keyframes:
-                    kf_["latent"] = video_vae.encode(kf_.pop("image"))
-                cond = node_helpers.conditioning_set_values(cond, {
-                    "minimax_keyframes": keyframes,
-                    "minimax_frame_count": frame_count,
-                })
-            if ref_blocks:
-                cond = node_helpers.conditioning_set_values(cond, {
-                    "minimax_refs": ref_blocks,
-                })
-
-            current_model = (
-                ref2va_model
-                if ref_blocks and ref2va_model is not None
-                else model
-            )
-            model_mode = (
-                "Ref2VA"
-                if ref_blocks and ref2va_model is not None
-                else "primary"
-            )
-            print(
-                f"[H3Memory] segment {si + 1} model route: {model_mode}; "
-                f"native reference blocks={len(ref_blocks)}",
-                flush=True,
-            )
-
-            # issue #8: separate TE device -> nothing to reclaim, keep it hot
-            _te_dev = getattr(clip.patcher, "load_device", None)
-            _dit_dev = getattr(current_model, "load_device", None)
-            if (_te_dev is not None and _dit_dev is not None
-                    and str(_te_dev) != str(_dit_dev)):
-                if si == 0:
-                    print(f"[H3Memory] TE on {_te_dev}, DiT on {_dit_dev} - "
-                          f"separate devices, TE stays resident.", flush=True)
-            else:
-                try:
-                    clip.patcher.model.to(_mm.text_encoder_offload_device())
-                except Exception:
-                    pass
-                try:
-                    _dev = _mm.get_torch_device()
-                    _mm.free_memory(_mm.get_total_memory(_dev) * 0.9, _dev)
-                    _mm.soft_empty_cache()
-                    print("[H3Memory] TE evicted; %.1f GB free for the DiT"
-                          % (_mm.get_free_memory(_dev) / (1024 ** 3)), flush=True)
-                except Exception:
-                    pass
-
-            sigmas = ncs.BasicScheduler().get_sigmas(
-                current_model, scheduler, steps, 1.0
-            )[0]
-            guider = ncs.BasicGuider().get_guider(current_model, cond)[0]
-            shot_seed = (seed + si) if seed_per_shot else seed
-            noise = ncs.RandomNoise().get_noise(shot_seed)[0]
-            _mb = _auto_measure_begin()
-            try:
-                out, _denoised = ncs.SamplerCustomAdvanced().sample(
-                    noise, guider, sampler, sigmas, latent)
-            finally:
-                # record even on interrupt/OOM: the peak up to that moment is
-                # a valid LOWER bound on the pool, and the cache only grows -
-                # an aborted thrashing run should still teach the next one
-                _auto_measure_end(_mb, current_model)
-
-            lat = out["samples"]
-            if getattr(lat, "is_nested", False):
-                lat = lat.unbind()[0]
-            imgs = video_vae.decode(lat)
-            if imgs.ndim == 5:
-                imgs = imgs.reshape(-1, imgs.shape[-3], imgs.shape[-2],
-                                    imgs.shape[-1])
-            aud = vae_decode_audio(audio_vae, out)
-            sr = aud["sample_rate"]
-            wav = aud["waveform"]
-
-            if anchor is None and anchor_frames > 0:
-                anchor = imgs[:1].clone()
-                print("[H3Memory] identity anchor set from shot 1 frame 1.",
-                      flush=True)
-            history.append(imgs[-1:].clone())
-            if len(history) > 8:
-                history.pop(0)
-
-            if si > 0:
-                imgs = imgs[1:]
-                trim = int(round(sr / 24.0))
-                wav = wav[..., trim:]
-            frames_parts.append(imgs.cpu())
-            audio_parts.append(wav.cpu())
+        segments = _iter_memory_segments(
+            model=model,
+            clip=clip,
+            video_vae=video_vae,
+            audio_vae=audio_vae,
+            shots=shots,
+            segment_frames=segment_frames,
+            width=width,
+            height=height,
+            seed=seed,
+            steps=steps,
+            memory_frames=memory_frames,
+            anchor_frames=anchor_frames,
+            seed_per_shot=seed_per_shot,
+            sampler_name=sampler_name,
+            scheduler=scheduler,
+            persistent_refs=persistent_refs,
+            ref2va_model=ref2va_model,
+            visual_reference_mode=visual_reference_mode,
+            visual_reference_schedule=visual_reference_schedule,
+            audio_reference_mode=audio_reference_mode,
+            audio_reference_schedule=audio_reference_schedule,
+            anchor=anchor,
+            history=[],
+            announce_start_image=start_image is not None,
+            trim_audio_seam=True,
+        )
+        for segment in segments:
+            sr = segment["sample_rate"]
+            frames_parts.append(segment["images"].cpu())
+            audio_parts.append(segment["waveform"].cpu())
 
         master = torch.cat(frames_parts, dim=0)
         waveform = _xfade_audio(audio_parts, sr)

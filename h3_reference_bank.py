@@ -3,11 +3,30 @@
 
 import math
 import os
+import hashlib
 
 
 MAX_IMAGES = 9
 MAX_VIDEOS = 3
 MAX_AUDIOS = 3
+
+
+def _update_tensor_fingerprint(digest, label, tensor, sample_count=4096):
+    import torch
+
+    value = tensor.detach().to(device="cpu").contiguous()
+    digest.update(label.encode("utf-8"))
+    digest.update(str(tuple(value.shape)).encode("ascii"))
+    digest.update(str(value.dtype).encode("ascii"))
+    flat = value.reshape(-1)
+    if flat.numel() > sample_count:
+        indices = torch.linspace(
+            0, flat.numel() - 1, sample_count, dtype=torch.int64
+        )
+        flat = flat[indices]
+    if flat.is_floating_point():
+        flat = flat.to(torch.float32)
+    digest.update(flat.numpy().tobytes())
 
 
 def _model_choices(variant=None):
@@ -167,11 +186,15 @@ class H3PersistentReferenceBank:
         report = []
         picture_count = 0
         video_count = 0
+        content_digest = hashlib.sha256()
 
         for index in range(1, MAX_IMAGES + 1):
             image = references.get(f"ref_image_{index}")
             if image is None:
                 continue
+            _update_tensor_fingerprint(
+                content_digest, f"image:{index}", image
+            )
             image = image[:1]
             height_in, width_in = image.shape[1:3]
             if ref_image_size == "match":
@@ -212,6 +235,9 @@ class H3PersistentReferenceBank:
             video = references.get(f"ref_video_{index}")
             if video is None:
                 continue
+            _update_tensor_fingerprint(
+                content_digest, f"video:{index}", video
+            )
             video_height, video_width = video.shape[1:3]
             target_width, target_height = mmh3.adapt_canvas(video_width, video_height)
             if video_width * video_height < target_width * target_height:
@@ -236,6 +262,11 @@ class H3PersistentReferenceBank:
             audio_label = None
             paired_audio = references.get(f"ref_video_audio_{index}")
             if paired_audio is not None:
+                _update_tensor_fingerprint(
+                    content_digest,
+                    f"video_audio:{index}",
+                    paired_audio["waveform"],
+                )
                 audio_block, seconds = _prepare_audio(audio_vae, paired_audio, max_audio_seconds)
                 audio_item = {"type": "audio"}
                 items.append(audio_item)
@@ -277,6 +308,11 @@ class H3PersistentReferenceBank:
             audio = references.get(f"ref_audio_{index}")
             if audio is None:
                 continue
+            _update_tensor_fingerprint(
+                content_digest,
+                f"audio:{index}",
+                audio["waveform"],
+            )
             block, seconds = _prepare_audio(audio_vae, audio, max_audio_seconds)
             item = {"type": "audio"}
             items.append(item)
@@ -298,6 +334,9 @@ class H3PersistentReferenceBank:
             "entries": entries,
             "has_references": bool(blocks),
             "report": ", ".join(report) if report else "No persistent references",
+            "content_fingerprint": (
+                content_digest.hexdigest() if entries else ""
+            ),
         }
         print(f"[H3PersistentRefs] {bank['report']}", flush=True)
         return (bank, bank["has_references"], bank["report"])

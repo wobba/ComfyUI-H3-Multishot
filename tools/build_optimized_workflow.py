@@ -25,6 +25,25 @@ def model_node(node_id, title, model_name, output_link, x, y):
     }
 
 
+def turbo_node(node_id, title, input_link, output_link, x, y):
+    return {
+        "id": node_id,
+        "type": "MiniMaxH3TurboLoRA",
+        "pos": [x, y],
+        "size": [370, 130],
+        "title": title,
+        "inputs": [{"name": "model", "type": "MODEL", "link": input_link}],
+        "outputs": [
+            {"name": "model", "type": "MODEL", "links": [output_link]}
+        ],
+        "widgets_values": [
+            "h3-minimax/penis vagina insert.safetensors",
+            1,
+            False,
+        ],
+    }
+
+
 def spectrum_node(node_id, title, input_link, output_link, x, y):
     return {
         "id": node_id,
@@ -87,34 +106,40 @@ def main():
         -1460,
         -220,
     )
-    nodes[16] = spectrum_node(16, "FL2VA Spectrum", 1, 2, -1010, -220)
-    nodes[17] = sage_node(17, "FL2VA SageAttention3", 2, 3, -560, -220)
+    nodes[15] = turbo_node(15, "FL2VA LoRA", 1, 2, -1010, -220)
+    nodes[16] = spectrum_node(16, "FL2VA Spectrum", 2, 3, -600, -220)
+    nodes[17] = sage_node(17, "FL2VA SageAttention3", 3, 4, -170, -220)
 
     nodes[18] = model_node(
         18,
         "Ref2VA INT8 - only routed native-ref segments",
         "minimax_h3_ref2va_int8_convrot.safetensors",
-        4,
+        5,
         -1460,
         430,
     )
-    nodes[20] = spectrum_node(20, "Ref2VA Spectrum", 4, 5, -1010, 430)
-    nodes[21] = sage_node(21, "Ref2VA SageAttention3", 5, 6, -560, 430)
+    nodes[19] = turbo_node(19, "Ref2VA LoRA", 5, 6, -1010, 430)
+    nodes[20] = spectrum_node(20, "Ref2VA Spectrum", 6, 7, -600, 430)
+    nodes[21] = sage_node(21, "Ref2VA SageAttention3", 7, 8, -170, 430)
 
     sampler = nodes[6]
     sampler["pos"] = [300, -120]
     sampler["size"] = [590, 720]
-    sampler["title"] = "Optimized Variable-Duration Memory Chain"
+    sampler["type"] = "H3MultishotMemoryDiskSampler"
+    sampler["title"] = "Optimized Variable-Duration Memory Chain (Disk / Resume)"
     sampler["inputs"] = [
-        {"name": "model", "type": "MODEL", "link": 3},
-        {"name": "clip", "type": "CLIP", "link": 7},
-        {"name": "video_vae", "type": "VAE", "link": 8},
-        {"name": "audio_vae", "type": "VAE", "link": 9},
-        {"name": "persistent_refs", "type": "H3_REFS", "link": 12},
-        {"name": "ref2va_model", "type": "MODEL", "link": 6},
+        {"name": "model", "type": "MODEL", "link": 4},
+        {"name": "clip", "type": "CLIP", "link": 9},
+        {"name": "video_vae", "type": "VAE", "link": 10},
+        {"name": "audio_vae", "type": "VAE", "link": 11},
+        {"name": "persistent_refs", "type": "H3_REFS", "link": 14},
+        {"name": "ref2va_model", "type": "MODEL", "link": 8},
     ]
-    sampler["outputs"][0]["links"] = [17]
-    sampler["outputs"][1]["links"] = [18]
+    sampler["outputs"] = [
+        {"name": "video", "type": "VIDEO", "links": [19]},
+        {"name": "manifest_path", "type": "STRING", "links": None},
+        {"name": "segments_rendered", "type": "INT", "links": None},
+    ]
     sampler["widgets_values"] = [
         SAMPLE.read_text(encoding="utf-8"),
         0,
@@ -127,6 +152,7 @@ def main():
         True,
         2,
         1,
+        "h3_optimized_disk_run",
         "res_multistep",
         "simple",
         "auto_speaker_aware",
@@ -134,36 +160,37 @@ def main():
         "",
         "auto_prompt_aware",
         "",
+        True,
+        False,
+        "penis-vagina-insert@1",
     ]
 
     nodes[2]["pos"] = [-1460, 1080]
     nodes[3]["pos"] = [-1010, 1080]
     nodes[4]["pos"] = [-1010, 1180]
     nodes[5]["pos"] = [-550, 1080]
-    nodes[5]["outputs"][0]["links"] = [12]
+    nodes[5]["outputs"][0]["links"] = [14]
     nodes[5]["widgets_values"] = [960, 544, 243, "match", 12]
     bank_links = {
-        "video_vae": 10,
-        "audio_vae": 11,
-        "ref_image_1": 13,
-        "ref_image_2": 14,
-        "ref_image_3": 15,
-        "ref_audio_1": 16,
+        "video_vae": 12,
+        "audio_vae": 13,
+        "ref_image_1": 15,
+        "ref_image_2": 16,
+        "ref_image_3": 17,
+        "ref_audio_1": 18,
     }
     for input_spec in nodes[5]["inputs"]:
         input_spec["link"] = bank_links[input_spec["name"]]
-    nodes[7]["inputs"][0]["link"] = 17
-    nodes[7]["inputs"][1]["link"] = 18
-    nodes[7]["outputs"][0]["links"] = [19]
+    nodes.pop(7)
     nodes[8]["inputs"][0]["link"] = 19
 
-    nodes[2]["outputs"][0]["links"] = [7]
-    nodes[3]["outputs"][0]["links"] = [8, 10]
-    nodes[4]["outputs"][0]["links"] = [9, 11]
-    nodes[10]["outputs"][0]["links"] = [13]
-    nodes[11]["outputs"][0]["links"] = [14]
-    nodes[12]["outputs"][0]["links"] = [15]
-    nodes[13]["outputs"][0]["links"] = [16]
+    nodes[2]["outputs"][0]["links"] = [9]
+    nodes[3]["outputs"][0]["links"] = [10, 12]
+    nodes[4]["outputs"][0]["links"] = [11, 13]
+    nodes[10]["outputs"][0]["links"] = [15]
+    nodes[11]["outputs"][0]["links"] = [16]
+    nodes[12]["outputs"][0]["links"] = [17]
+    nodes[13]["outputs"][0]["links"] = [18]
     for node_id in (10, 11, 12, 13):
         nodes[node_id]["mode"] = 4
 
@@ -175,14 +202,13 @@ def main():
     note["widgets_values"] = [
         (
             "## Optimized H3 Memory chain\n\n"
-            "Both INT8 models are patched once through **Spectrum -> "
+            "Both INT8 models are patched once through **MiniMax-H3 Turbo "
+            "LoRA -> Spectrum -> "
             "SageAttention3**. The sampler uses FL2VA for a segment with no "
             "routed native reference blocks and Ref2VA only when that segment "
             "uses `<Picture N>`, `<Video N>`, or active audio refs.\n\n"
-            "For a content or Turbo LoRA, insert Larryvrh's MiniMax-H3 Turbo "
-            "LoRA loader before Spectrum on the model path that needs it. The "
-            "baseline has no LoRA because Spectrum and SageAttention3 provide "
-            "the measured speedup.\n\n"
+            "The LoRA nodes reproduce the validated optimized source graph. "
+            "Choose the desired LoRA and strength there before rendering.\n\n"
             "Put `frame_count: N` inside each outer `---` prompt block. The "
             "sampler strips it before conditioning and uses it for that "
             "segment's latent length. A block without it uses "
@@ -191,9 +217,10 @@ def main():
             "inside a segment and do not need to match generation boundaries.\n\n"
             "Reference loaders are muted by default. Enable and select only the "
             "assets required by the script. `auto_prompt_aware` compacts visual "
-            "labels per segment. Spectrum's default offline replay uses a second "
-            "sampler pass but was retained because it matches the validated fast "
-            "T2V workflow."
+            "labels per segment. The Disk/Resume sampler writes lossless segment "
+            "intermediates and PNG memory checkpoints immediately, then returns "
+            "a lazy VIDEO after final assembly. Keep `run_name` stable to resume; "
+            "change it for a different prompt or settings plan."
         )
     ]
 
@@ -202,25 +229,25 @@ def main():
     workflow["last_link_id"] = 19
     workflow["nodes"] = [nodes[node_id] for node_id in sorted(nodes)]
     workflow["links"] = [
-        [1, 14, 0, 16, 0, "MODEL"],
-        [2, 16, 0, 17, 0, "MODEL"],
-        [3, 17, 0, 6, 0, "MODEL"],
-        [4, 18, 0, 20, 0, "MODEL"],
-        [5, 20, 0, 21, 0, "MODEL"],
-        [6, 21, 0, 6, 18, "MODEL"],
-        [7, 2, 0, 6, 1, "CLIP"],
-        [8, 3, 0, 6, 2, "VAE"],
-        [9, 4, 0, 6, 3, "VAE"],
-        [10, 3, 0, 5, 0, "VAE"],
-        [11, 4, 0, 5, 1, "VAE"],
-        [12, 5, 0, 6, 17, "H3_REFS"],
-        [13, 10, 0, 5, 7, "IMAGE"],
-        [14, 11, 0, 5, 8, "IMAGE"],
-        [15, 12, 0, 5, 9, "IMAGE"],
-        [16, 13, 0, 5, 22, "AUDIO"],
-        [17, 6, 0, 7, 0, "IMAGE"],
-        [18, 6, 1, 7, 1, "AUDIO"],
-        [19, 7, 0, 8, 0, "VIDEO"],
+        [1, 14, 0, 15, 0, "MODEL"],
+        [2, 15, 0, 16, 0, "MODEL"],
+        [3, 16, 0, 17, 0, "MODEL"],
+        [4, 17, 0, 6, 0, "MODEL"],
+        [5, 18, 0, 19, 0, "MODEL"],
+        [6, 19, 0, 20, 0, "MODEL"],
+        [7, 20, 0, 21, 0, "MODEL"],
+        [8, 21, 0, 6, 19, "MODEL"],
+        [9, 2, 0, 6, 1, "CLIP"],
+        [10, 3, 0, 6, 2, "VAE"],
+        [11, 4, 0, 6, 3, "VAE"],
+        [12, 3, 0, 5, 0, "VAE"],
+        [13, 4, 0, 5, 1, "VAE"],
+        [14, 5, 0, 6, 18, "H3_REFS"],
+        [15, 10, 0, 5, 7, "IMAGE"],
+        [16, 11, 0, 5, 8, "IMAGE"],
+        [17, 12, 0, 5, 9, "IMAGE"],
+        [18, 13, 0, 5, 22, "AUDIO"],
+        [19, 6, 0, 8, 0, "VIDEO"],
     ]
     workflow["groups"] = [
         {

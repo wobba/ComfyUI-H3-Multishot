@@ -22,7 +22,7 @@
           "name": "CLIP",
           "type": "CLIP",
           "links": [
-            7
+            9
           ]
         }
       ],
@@ -49,8 +49,8 @@
           "name": "VAE",
           "type": "VAE",
           "links": [
-            8,
-            10
+            10,
+            12
           ]
         }
       ],
@@ -76,8 +76,8 @@
           "name": "VAE",
           "type": "VAE",
           "links": [
-            9,
-            11
+            11,
+            13
           ]
         }
       ],
@@ -101,32 +101,32 @@
         {
           "name": "video_vae",
           "type": "VAE",
-          "link": 10
+          "link": 12
         },
         {
           "name": "audio_vae",
           "type": "VAE",
-          "link": 11
+          "link": 13
         },
         {
           "name": "ref_image_1",
           "type": "IMAGE",
-          "link": 13
+          "link": 15
         },
         {
           "name": "ref_image_2",
           "type": "IMAGE",
-          "link": 14
+          "link": 16
         },
         {
           "name": "ref_image_3",
           "type": "IMAGE",
-          "link": 15
+          "link": 17
         },
         {
           "name": "ref_audio_1",
           "type": "AUDIO",
-          "link": 16
+          "link": 18
         }
       ],
       "outputs": [
@@ -134,7 +134,7 @@
           "name": "persistent_refs",
           "type": "H3_REFS",
           "links": [
-            12
+            14
           ]
         },
         {
@@ -158,7 +158,7 @@
     },
     {
       "id": 6,
-      "type": "H3MultishotMemorySampler",
+      "type": "H3MultishotMemoryDiskSampler",
       "pos": [
         300,
         -120
@@ -167,56 +167,54 @@
         590,
         720
       ],
-      "title": "Optimized Variable-Duration Memory Chain",
+      "title": "Optimized Variable-Duration Memory Chain (Disk / Resume)",
       "inputs": [
         {
           "name": "model",
           "type": "MODEL",
-          "link": 3
+          "link": 4
         },
         {
           "name": "clip",
           "type": "CLIP",
-          "link": 7
+          "link": 9
         },
         {
           "name": "video_vae",
           "type": "VAE",
-          "link": 8
+          "link": 10
         },
         {
           "name": "audio_vae",
           "type": "VAE",
-          "link": 9
+          "link": 11
         },
         {
           "name": "persistent_refs",
           "type": "H3_REFS",
-          "link": 12
+          "link": 14
         },
         {
           "name": "ref2va_model",
           "type": "MODEL",
-          "link": 6
+          "link": 8
         }
       ],
       "outputs": [
         {
-          "name": "master_frames",
-          "type": "IMAGE",
+          "name": "video",
+          "type": "VIDEO",
           "links": [
-            17
+            19
           ]
         },
         {
-          "name": "master_audio",
-          "type": "AUDIO",
-          "links": [
-            18
-          ]
+          "name": "manifest_path",
+          "type": "STRING",
+          "links": null
         },
         {
-          "name": "shots_rendered",
+          "name": "segments_rendered",
           "type": "INT",
           "links": null
         }
@@ -233,51 +231,17 @@
         true,
         2,
         1,
+        "h3_optimized_disk_run",
         "res_multistep",
         "simple",
         "auto_speaker_aware",
         "",
         "",
         "auto_prompt_aware",
-        ""
-      ]
-    },
-    {
-      "id": 7,
-      "type": "CreateVideo",
-      "pos": [
-        720,
-        90
-      ],
-      "size": [
-        280,
-        100
-      ],
-      "title": "Mux H3 Video and Audio",
-      "inputs": [
-        {
-          "name": "images",
-          "type": "IMAGE",
-          "link": 17
-        },
-        {
-          "name": "audio",
-          "type": "AUDIO",
-          "link": 18
-        }
-      ],
-      "outputs": [
-        {
-          "name": "VIDEO",
-          "type": "VIDEO",
-          "links": [
-            19
-          ]
-        }
-      ],
-      "widgets_values": [
-        24,
-        8
+        "",
+        true,
+        false,
+        "penis-vagina-insert@1"
       ]
     },
     {
@@ -327,7 +291,7 @@
       "inputs": [],
       "outputs": [],
       "widgets_values": [
-        "## Optimized H3 Memory chain\n\nBoth INT8 models are patched once through **Spectrum -> SageAttention3**. The sampler uses FL2VA for a segment with no routed native reference blocks and Ref2VA only when that segment uses `<Picture N>`, `<Video N>`, or active audio refs.\n\nFor a content or Turbo LoRA, insert Larryvrh's MiniMax-H3 Turbo LoRA loader before Spectrum on the model path that needs it. The baseline has no LoRA because Spectrum and SageAttention3 provide the measured speedup.\n\nPut `frame_count: N` inside each outer `---` prompt block. The sampler strips it before conditioning and uses it for that segment's latent length. A block without it uses `frames_per_shot`. Internal `[Shot N] At MM:SS.mmm` camera cuts can occur at arbitrary times inside a segment and do not need to match generation boundaries.\n\nReference loaders are muted by default. Enable and select only the assets required by the script. `auto_prompt_aware` compacts visual labels per segment. Spectrum's default offline replay uses a second sampler pass but was retained because it matches the validated fast T2V workflow."
+        "## Optimized H3 Memory chain\n\nBoth INT8 models are patched once through **MiniMax-H3 Turbo LoRA -> Spectrum -> SageAttention3**. The sampler uses FL2VA for a segment with no routed native reference blocks and Ref2VA only when that segment uses `<Picture N>`, `<Video N>`, or active audio refs.\n\nThe LoRA nodes reproduce the validated optimized source graph. Choose the desired LoRA and strength there before rendering.\n\nPut `frame_count: N` inside each outer `---` prompt block. The sampler strips it before conditioning and uses it for that segment's latent length. A block without it uses `frames_per_shot`. Internal `[Shot N] At MM:SS.mmm` camera cuts can occur at arbitrary times inside a segment and do not need to match generation boundaries.\n\nReference loaders are muted by default. Enable and select only the assets required by the script. `auto_prompt_aware` compacts visual labels per segment. The Disk/Resume sampler writes lossless segment intermediates and PNG memory checkpoints immediately, then returns a lazy VIDEO after final assembly. Keep `run_name` stable to resume; change it for a different prompt or settings plan."
       ],
       "color": "#24364b",
       "bgcolor": "#13202f"
@@ -350,7 +314,7 @@
           "name": "IMAGE",
           "type": "IMAGE",
           "links": [
-            13
+            15
           ]
         },
         {
@@ -383,7 +347,7 @@
           "name": "IMAGE",
           "type": "IMAGE",
           "links": [
-            14
+            16
           ]
         },
         {
@@ -416,7 +380,7 @@
           "name": "IMAGE",
           "type": "IMAGE",
           "links": [
-            15
+            17
           ]
         },
         {
@@ -449,7 +413,7 @@
           "name": "AUDIO",
           "type": "AUDIO",
           "links": [
-            16
+            18
           ]
         }
       ],
@@ -486,17 +450,17 @@
       ]
     },
     {
-      "id": 16,
-      "type": "SpectrumApplyMiniMaxH3",
+      "id": 15,
+      "type": "MiniMaxH3TurboLoRA",
       "pos": [
         -1010,
         -220
       ],
       "size": [
-        390,
-        460
+        370,
+        130
       ],
-      "title": "FL2VA Spectrum",
+      "title": "FL2VA LoRA",
       "inputs": [
         {
           "name": "model",
@@ -510,6 +474,40 @@
           "type": "MODEL",
           "links": [
             2
+          ]
+        }
+      ],
+      "widgets_values": [
+        "h3-minimax/penis vagina insert.safetensors",
+        1,
+        false
+      ]
+    },
+    {
+      "id": 16,
+      "type": "SpectrumApplyMiniMaxH3",
+      "pos": [
+        -600,
+        -220
+      ],
+      "size": [
+        390,
+        460
+      ],
+      "title": "FL2VA Spectrum",
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "links": [
+            3
           ]
         }
       ],
@@ -539,7 +537,7 @@
       "id": 17,
       "type": "PathchSageAttentionKJ",
       "pos": [
-        -560,
+        -170,
         -220
       ],
       "size": [
@@ -551,7 +549,7 @@
         {
           "name": "model",
           "type": "MODEL",
-          "link": 2
+          "link": 3
         }
       ],
       "outputs": [
@@ -559,7 +557,7 @@
           "name": "MODEL",
           "type": "MODEL",
           "links": [
-            3
+            4
           ]
         }
       ],
@@ -586,7 +584,7 @@
           "name": "MODEL",
           "type": "MODEL",
           "links": [
-            4
+            5
           ]
         }
       ],
@@ -596,10 +594,44 @@
       ]
     },
     {
+      "id": 19,
+      "type": "MiniMaxH3TurboLoRA",
+      "pos": [
+        -1010,
+        430
+      ],
+      "size": [
+        370,
+        130
+      ],
+      "title": "Ref2VA LoRA",
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 5
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "links": [
+            6
+          ]
+        }
+      ],
+      "widgets_values": [
+        "h3-minimax/penis vagina insert.safetensors",
+        1,
+        false
+      ]
+    },
+    {
       "id": 20,
       "type": "SpectrumApplyMiniMaxH3",
       "pos": [
-        -1010,
+        -600,
         430
       ],
       "size": [
@@ -611,7 +643,7 @@
         {
           "name": "model",
           "type": "MODEL",
-          "link": 4
+          "link": 6
         }
       ],
       "outputs": [
@@ -619,7 +651,7 @@
           "name": "model",
           "type": "MODEL",
           "links": [
-            5
+            7
           ]
         }
       ],
@@ -649,7 +681,7 @@
       "id": 21,
       "type": "PathchSageAttentionKJ",
       "pos": [
-        -560,
+        -170,
         430
       ],
       "size": [
@@ -661,7 +693,7 @@
         {
           "name": "model",
           "type": "MODEL",
-          "link": 5
+          "link": 7
         }
       ],
       "outputs": [
@@ -669,7 +701,7 @@
           "name": "MODEL",
           "type": "MODEL",
           "links": [
-            6
+            8
           ]
         }
       ],
@@ -684,12 +716,20 @@
       1,
       14,
       0,
-      16,
+      15,
       0,
       "MODEL"
     ],
     [
       2,
+      15,
+      0,
+      16,
+      0,
+      "MODEL"
+    ],
+    [
+      3,
       16,
       0,
       17,
@@ -697,7 +737,7 @@
       "MODEL"
     ],
     [
-      3,
+      4,
       17,
       0,
       6,
@@ -705,31 +745,39 @@
       "MODEL"
     ],
     [
-      4,
-      18,
-      0,
-      20,
-      0,
-      "MODEL"
-    ],
-    [
       5,
-      20,
+      18,
       0,
-      21,
+      19,
       0,
       "MODEL"
     ],
     [
       6,
-      21,
+      19,
       0,
-      6,
-      18,
+      20,
+      0,
       "MODEL"
     ],
     [
       7,
+      20,
+      0,
+      21,
+      0,
+      "MODEL"
+    ],
+    [
+      8,
+      21,
+      0,
+      6,
+      19,
+      "MODEL"
+    ],
+    [
+      9,
       2,
       0,
       6,
@@ -737,7 +785,7 @@
       "CLIP"
     ],
     [
-      8,
+      10,
       3,
       0,
       6,
@@ -745,7 +793,7 @@
       "VAE"
     ],
     [
-      9,
+      11,
       4,
       0,
       6,
@@ -753,7 +801,7 @@
       "VAE"
     ],
     [
-      10,
+      12,
       3,
       0,
       5,
@@ -761,7 +809,7 @@
       "VAE"
     ],
     [
-      11,
+      13,
       4,
       0,
       5,
@@ -769,15 +817,15 @@
       "VAE"
     ],
     [
-      12,
+      14,
       5,
       0,
       6,
-      17,
+      18,
       "H3_REFS"
     ],
     [
-      13,
+      15,
       10,
       0,
       5,
@@ -785,7 +833,7 @@
       "IMAGE"
     ],
     [
-      14,
+      16,
       11,
       0,
       5,
@@ -793,7 +841,7 @@
       "IMAGE"
     ],
     [
-      15,
+      17,
       12,
       0,
       5,
@@ -801,7 +849,7 @@
       "IMAGE"
     ],
     [
-      16,
+      18,
       13,
       0,
       5,
@@ -809,24 +857,8 @@
       "AUDIO"
     ],
     [
-      17,
-      6,
-      0,
-      7,
-      0,
-      "IMAGE"
-    ],
-    [
-      18,
-      6,
-      1,
-      7,
-      1,
-      "AUDIO"
-    ],
-    [
       19,
-      7,
+      6,
       0,
       8,
       0,

@@ -73,6 +73,27 @@ See [Changelog](#changelog).
     refs, select only `<Picture N>` / `<Video N>` tags present in that segment,
     or use an explicit schedule such as `P1,V1|none|P2`. Selected labels are
     compacted and rewritten to the local H3 reference order.
+- **H3 Multishot Memory Sampler (Disk / Resume)** - the long-form production
+  sibling of the in-RAM Memory sampler. It uses the same prompt, memory,
+  reference, FL2VA/Ref2VA routing, model patches, and inline `frame_count`
+  behavior, but writes each completed segment immediately as lossless
+  FFV1/PCM MKV. It atomically checkpoints:
+  - a JSON render manifest;
+  - the persistent anchor PNG;
+  - one final-frame PNG per segment;
+  - each lossless segment until final assembly.
+
+  Completed segments are never held in the returned `IMAGE`/`AUDIO` master.
+  The node keeps only the anchor and recent one-frame memory tensors, then
+  assembles a high-quality H.264/AAC MP4 and returns it as a disk-backed
+  `VIDEO`. `run_name` identifies the durable folder under
+  `output/H3_DISK/`; rerun with the same name and unchanged plan to resume.
+  Change `run_name` when the prompt or settings change. `keep_segments=false`
+  removes lossless MKVs after a successful final assembly while retaining the
+  manifest and PNG checkpoints. Set `plan_tag` to a concise model/LoRA
+  revision (the bundled workflow uses `penis-vagina-insert@1`); it participates
+  in the resume hash. Reference tensors, start image, base model names, and text
+  encoder name are also fingerprinted.
 - **H3 Optional Image (I2V on/off)** - a real toggle for an optional image
   input. A normal switch node cannot express "no image" (both branches are
   required), so turning I2V off usually ends up feeding a black placeholder
@@ -140,6 +161,10 @@ Full-precision text encoder + VAEs: [Comfy-Org/MiniMax-H3](https://huggingface.c
   the same graph does T2V and I2V: flip the toggle on to use your frame.
 - `H3_Multishot_MEMORY.json` - long-form mode: the memory sampler with an
   identity anchor, for 2-5 minute multi-shot pieces.
+- `H3_Multishot_MEMORY_Optimized_INT8.json` - preferred disk-backed optimized
+  flow: full INT8 FL2VA/Ref2VA paths, Larryvrh's MiniMax-H3 LoRA loader,
+  Spectrum, SageAttention3, inline per-segment frame counts, manifest resume,
+  and direct `VIDEO` output.
 - `H3_Keyframes.json` - **keyframes anywhere**, single pass. One generation,
   so the audio is one continuous stream with no seams.
 
@@ -162,6 +187,10 @@ prompt-only stress test with requested camera shots of 2s / 3s / 20s / 10s /
 - Inline `frame_count` overrides that default per `---` segment. Internal
   camera cuts do not need to match generation boundaries.
 - Malformed JSON scripts fail loudly instead of rendering the raw text.
+- The original Memory node remains useful for short previews, but it retains
+  every decoded frame and waveform in CPU RAM. Use Disk / Resume for long
+  scripts; toggling Spectrum settings cannot remove the in-RAM node's
+  fundamental accumulation.
 - **Resolution:** H3 is happiest at its native size. Rendering natively at
   1920x1088 measured *worse* than 960x544 in blind review (softer detail, and
   it reads as an upscale) while costing ~4x the time. Render native, then
