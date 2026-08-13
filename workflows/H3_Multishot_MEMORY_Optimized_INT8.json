@@ -314,7 +314,7 @@
     },
     {
       "id": 9,
-      "type": "MarkdownNote",
+      "type": "Note",
       "pos": [
         300,
         -560

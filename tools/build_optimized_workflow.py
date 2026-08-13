@@ -181,6 +181,7 @@ def main():
         nodes[node_id]["mode"] = 4
 
     note = nodes[9]
+    note["type"] = "Note"
     note["pos"] = [300, -560]
     note["size"] = [760, 390]
     note["title"] = "Optimized variable-duration routing"
