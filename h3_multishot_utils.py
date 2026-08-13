@@ -193,6 +193,68 @@ def _parse_frame_schedule(text, segment_count, default_frames, align=None):
     return resolved
 
 
+_FRAME_COUNT_DIRECTIVE = re.compile(
+    r"(?im)^\s*frame_count\s*:\s*(\d+)\s*$"
+)
+
+
+def _extract_inline_frame_counts(shots):
+    """Remove one optional ``frame_count: N`` directive from each segment."""
+    prompts = []
+    frame_counts = []
+    for index, prompt in enumerate(shots):
+        matches = list(_FRAME_COUNT_DIRECTIVE.finditer(prompt))
+        if len(matches) > 1:
+            raise ValueError(
+                f"Segment {index + 1} contains multiple frame_count directives; "
+                "use exactly one."
+            )
+        if matches:
+            frames = int(matches[0].group(1))
+            if frames < 5:
+                raise ValueError(
+                    f"Segment {index + 1} frame_count must be at least 5"
+                )
+            prompt = _FRAME_COUNT_DIRECTIVE.sub("", prompt, count=1)
+            prompt = re.sub(r"\n{3,}", "\n\n", prompt).strip()
+            if not prompt:
+                raise ValueError(
+                    f"Segment {index + 1} contains frame_count but no prompt"
+                )
+            frame_counts.append(frames)
+        else:
+            frame_counts.append(None)
+        prompts.append(prompt)
+    return prompts, frame_counts
+
+
+def _resolve_segment_frames(
+    shots,
+    frame_schedule,
+    default_frames,
+    align=None,
+):
+    """Resolve inline directives, legacy schedule, then node default."""
+    prompts, inline_frames = _extract_inline_frame_counts(shots)
+    scheduled_frames = _parse_frame_schedule(
+        frame_schedule,
+        len(prompts),
+        default_frames,
+        align=None,
+    )
+    resolved = []
+    for index, inline in enumerate(inline_frames):
+        frames = inline if inline is not None else scheduled_frames[index]
+        resolved.append(int(align(frames) if align else frames))
+        if inline is not None and (frame_schedule or "").strip():
+            print(
+                f"[H3Memory] segment {index + 1}: inline frame_count "
+                f"overrides frame_schedule entry.",
+                flush=True,
+            )
+    return prompts, resolved
+
+
 class H3ScriptSplit:
     @classmethod
     def INPUT_TYPES(cls):
@@ -1479,8 +1541,11 @@ class H3MultishotMemorySampler:
             "audio_vae": ("VAE",),
             "script": ("STRING", {
                 "multiline": True, "dynamicPrompts": False,
-                "default": "Shot 1 prompt goes here.\n---\nShot 2 prompt goes here.",
-                "tooltip": "One prompt per shot, '---' between shots."}),
+                "default": "frame_count: 243\nShot 1 prompt goes here.\n---\n"
+                           "frame_count: 243\nShot 2 prompt goes here.",
+                "tooltip": "One prompt per segment, '---' between segments. "
+                           "Add frame_count: N inside a block to keep its "
+                           "duration with its prompt."}),
             "shot_count": ("INT", {"default": 0, "min": 0, "max": 64,
                 "tooltip": "0 = one shot per prompt in the script."}),
             "width": ("INT", {"default": 960, "min": 32, "max": 4096, "step": 16}),
@@ -1545,9 +1610,10 @@ class H3MultishotMemorySampler:
             "frame_schedule": ("STRING", {
                 "default": "",
                 "multiline": False,
-                "tooltip": "Optional frames per --- segment, e.g. '124|243|362'. "
-                           "Blank or missing entries use frames_per_shot. Values "
-                           "are aligned to H3's 17n+5 frame grid.",
+                "tooltip": "Legacy external schedule, e.g. '124|243|362'. "
+                           "Prefer inline frame_count inside each prompt block. "
+                           "Inline values override this widget; missing values "
+                           "use frames_per_shot.",
             }),
             "visual_reference_mode": (
                 ["always", "auto_prompt_aware", "schedule"],
@@ -1594,11 +1660,8 @@ class H3MultishotMemorySampler:
             shots.append(shots[-1])
 
         sampler = ncs.KSamplerSelect().get_sampler(sampler_name)[0]
-        segment_frames = _parse_frame_schedule(
-            frame_schedule,
-            n,
-            frames_per_shot,
-            mmh3.align_frame_count,
+        shots, segment_frames = _resolve_segment_frames(
+            shots, frame_schedule, frames_per_shot, mmh3.align_frame_count
         )
         print(
             "[H3Memory] segment frame schedule: "

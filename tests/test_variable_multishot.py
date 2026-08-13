@@ -23,6 +23,23 @@ def test_frame_schedule():
     assert utils._parse_frame_schedule(
         "123", 1, 243, lambda _frames: 124
     ) == [124]
+    prompts, frames = utils._resolve_segment_frames(
+        [
+            "frame_count: 124\nFirst prompt",
+            "Second prompt",
+            "frame_count: 362\nThird prompt",
+        ],
+        "",
+        243,
+    )
+    assert frames == [124, 243, 362]
+    assert prompts == ["First prompt", "Second prompt", "Third prompt"]
+    prompts, frames = utils._resolve_segment_frames(
+        ["frame_count: 124\nFirst prompt", "Second prompt"],
+        "362|175",
+        243,
+    )
+    assert frames == [124, 175]
 
 
 def test_reference_routing():

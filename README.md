@@ -55,11 +55,14 @@ See [Changelog](#changelog).
   the piece plus the last N shot-end frames. The anchor never changes, so drift
   cannot compound. Knobs: `anchor_frames` (1 = on, the long-chain fix) and
   `memory_frames` (recent frames, 0 = stock behaviour).
-  - **Variable segment duration:** `frame_schedule` accepts one count per
-    outer `---` block, for example `124|243|362`. A blank or missing entry
-    uses `frames_per_shot`; every resolved value is aligned to H3's `17n+5`
-    grid. This does not constrain camera-cut timing: `[Shot N] At MM:SS.mmm`
-    remains free to place cuts anywhere inside each generated segment.
+  - **Variable segment duration:** put `frame_count: N` inside each outer
+    `---` prompt block. The sampler removes this control line before text
+    encoding and uses it to size that segment's latent. A block without the
+    directive uses `frames_per_shot`; every resolved value is aligned to H3's
+    `17n+5` grid. The legacy `frame_schedule` widget remains as a fallback,
+    but inline values win. This does not constrain camera-cut timing:
+    `[Shot N] At MM:SS.mmm` remains free to place cuts anywhere inside each
+    generated segment.
   - **Per-segment FL2VA / Ref2VA:** connect an independently patched Ref2VA
     model to `ref2va_model`. Segments with routed native reference blocks use
     Ref2VA; segments without them use the primary FL2VA `model`. Both model
@@ -146,12 +149,18 @@ Full-precision text encoder + VAEs: [Comfy-Org/MiniMax-H3](https://huggingface.c
 30s, three chained shots from one script on the Q5_1 GGUF: identity and voice
 held across both seams. This video was made BY the workflow it demonstrates.
 
+[`samples/variable_duration_two_people.txt`](samples/variable_duration_two_people.txt) -
+prompt-only stress test with requested camera shots of 2s / 3s / 20s / 10s /
+5s. It packs the first two cuts into one segment and spans the uninterrupted
+20-second shot across 15-second + 5-second H3 segments using inline
+`frame_count` controls.
+
 ## Notes
 
 - `frames_per_shot` sits on H3's 17k+5 frame grid (243 = ~10.1s at 24fps;
   362 = ~15.1s, the trained max - beyond is untested but functional).
-- `frame_schedule` overrides that default per `---` segment. Internal camera
-  cuts do not need to match generation boundaries.
+- Inline `frame_count` overrides that default per `---` segment. Internal
+  camera cuts do not need to match generation boundaries.
 - Malformed JSON scripts fail loudly instead of rendering the raw text.
 - **Resolution:** H3 is happiest at its native size. Rendering natively at
   1920x1088 measured *worse* than 960x544 in blind review (softer detail, and

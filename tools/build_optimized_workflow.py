@@ -7,6 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "workflows" / "H3_Multishot_MEMORY_Persistent_Refs.json"
 OUTPUT = ROOT / "workflows" / "H3_Multishot_MEMORY_Optimized_INT8.json"
+SAMPLE = ROOT / "samples" / "variable_duration_two_people.txt"
 
 
 def model_node(node_id, title, model_name, output_link, x, y):
@@ -115,21 +116,7 @@ def main():
     sampler["outputs"][0]["links"] = [17]
     sampler["outputs"][1]["links"] = [18]
     sampler["widgets_values"] = [
-        (
-            "[Shot 1] A cinematic establishing shot with no native references.\n"
-            "overall_soundscape: Natural ambience.\n"
-            "non_diegetic_music: N/A.\n"
-            "---\n"
-            "<Picture 1> is the referenced subject. [Shot 1] The referenced "
-            "subject continues in a medium shot.\n"
-            "overall_soundscape: Natural ambience continues.\n"
-            "non_diegetic_music: N/A.\n"
-            "---\n"
-            "[Shot 1] Continue directly from the preceding final frame. "
-            "[Shot 2] At 00:04.000, cut to a close-up.\n"
-            "overall_soundscape: Natural ambience continues.\n"
-            "non_diegetic_music: N/A."
-        ),
+        SAMPLE.read_text(encoding="utf-8"),
         0,
         960,
         544,
@@ -144,7 +131,7 @@ def main():
         "simple",
         "auto_speaker_aware",
         "",
-        "124|243|362",
+        "",
         "auto_prompt_aware",
         "",
     ]
@@ -196,8 +183,10 @@ def main():
             "LoRA loader before Spectrum on the model path that needs it. The "
             "baseline has no LoRA because Spectrum and SageAttention3 provide "
             "the measured speedup.\n\n"
-            "`frame_schedule` maps one-to-one to outer `---` generation "
-            "segments. Blank or missing entries use `frames_per_shot`. Internal "
+            "Put `frame_count: N` inside each outer `---` prompt block. The "
+            "sampler strips it before conditioning and uses it for that "
+            "segment's latent length. A block without it uses "
+            "`frames_per_shot`. Internal "
             "`[Shot N] At MM:SS.mmm` camera cuts can occur at arbitrary times "
             "inside a segment and do not need to match generation boundaries.\n\n"
             "Reference loaders are muted by default. Enable and select only the "

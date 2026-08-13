@@ -1,0 +1,29 @@
+frame_count: 124
+[Shot 1] From 00:00.000 to 00:02.000, a cinematic medium-wide shot shows Mara, a woman in her early forties with a narrow freckled face, grey-green eyes, a dark brown braid, and a red raincoat, standing beside Elias, a man in his mid-forties with a square weathered face, short black hair, and a navy wool coat, on a rain-darkened harbor pier at dawn. They pull together on a heavy wet rope while the camera tracks left beside them. [Shot 2] At 00:02.000, cut to a tight two-shot for the remaining three seconds as the rope goes taut; Mara and Elias exchange a relieved look and brace shoulder-to-shoulder. Hold their stable faces, wardrobe, positions, and the taut rope through the end.
+
+overall_soundscape: Light rain, rope fibers straining, boots scraping wet timber, distant gulls and harbor water.
+non_diegetic_music: N/A.
+---
+frame_count: 362
+[Shot 1] Continue the same uninterrupted camera shot for the first fifteen seconds of a twenty-second action. Mara, with the same narrow freckled face, grey-green eyes, dark brown braid, and red raincoat, and Elias, with the same square weathered face, short black hair, and navy wool coat, remain shoulder-to-shoulder on the same dawn harbor pier. The camera begins a slow continuous orbit around them as they walk the taut rope toward a small fishing boat. Preserve their screen direction, damp wardrobe, rope position, fog, and amber harbor light. Do not cut. End mid-action with the orbit still moving, Mara's right hand reaching toward the boat rail, and Elias one step behind holding the rope.
+
+overall_soundscape: Continuous light rain, measured footsteps on wet timber, rope dragging, water against the hull.
+non_diegetic_music: A low sustained cello note begins quietly.
+---
+frame_count: 124
+[Shot 1] Continue directly from the preceding final frame without a cut to complete the remaining five seconds of the same twenty-second camera shot. Maintain the orbit's direction, speed, lens, dawn fog, wet pier, rope geometry, and both characters' exact appearance and wardrobe. Mara's right hand closes around the boat rail while Elias secures the rope around the mooring post. The camera completes the orbit and settles into a front three-quarter view. Hold the completed mooring and their calm breathing at the end.
+
+overall_soundscape: Rain and harbor water remain continuous; the rope tightens around wood with a short creak.
+non_diegetic_music: The same low cello note continues without a break.
+---
+frame_count: 243
+[Shot 1] Cut to a new ten-second camera shot inside the fishing boat's small wheelhouse. Mara retains her narrow freckled face, grey-green eyes, dark brown braid, and red raincoat. Elias retains his square weathered face, short black hair, and navy wool coat. In a medium two-shot, Mara studies a damp nautical chart while Elias wipes rain from the forward window. At 00:05.000 the camera slowly pushes toward the chart as Mara points to a marked channel; this is a camera move, not another cut. Elias leans beside her and follows her finger. End with both faces visible above the chart.
+
+overall_soundscape: Rain tapping the wheelhouse roof, cloth across wet glass, paper rustling, low engine-room hum.
+non_diegetic_music: Sparse cello with one soft piano tone.
+---
+frame_count: 124
+[Shot 1] Cut to a five-second exterior close two-shot through the rain-speckled wheelhouse window. Mara and Elias preserve the same faces, hair, red raincoat, navy wool coat, and positions from the previous segment. They look toward the foggy channel together. Mara quietly says: <d>[English] We leave on the next tide.</d> Elias nods once after her mouth closes. Hold their resolved expressions and the rain moving across the glass.
+
+overall_soundscape: Rain on glass, distant harbor water, muted wheelhouse hum beneath Mara's voice.
+non_diegetic_music: The cello and piano resolve into a soft final chord.
