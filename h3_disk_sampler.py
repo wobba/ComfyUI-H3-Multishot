@@ -473,6 +473,7 @@ class H3MultishotMemoryDiskSampler:
         frame_schedule="",
         visual_reference_mode="always",
         visual_reference_schedule="",
+        script_override=None,
         resume=True,
         keep_segments=False,
         plan_tag="",
@@ -488,6 +489,9 @@ class H3MultishotMemoryDiskSampler:
             _prepare_memory_plan,
         )
 
+        from .h3_multishot_utils import _resolve_script_input
+
+        script = _resolve_script_input(script, script_override)
         run_name, generated_run_name = _resolve_run_name(run_name)
         if generated_run_name:
             print(f"[H3Disk] auto run_name: {run_name}", flush=True)

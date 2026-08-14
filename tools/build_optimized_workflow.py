@@ -113,6 +113,21 @@ def model_route_node(x, y):
     }
 
 
+def external_script_node(x, y):
+    return {
+        "id": 23,
+        "type": "PrimitiveStringMultiline",
+        "pos": [x, y],
+        "size": [900, 860],
+        "title": "H3 segment script (overrides sampler text widget)",
+        "inputs": [],
+        "outputs": [
+            {"name": "STRING", "type": "STRING", "links": [22]}
+        ],
+        "widgets_values": [SAMPLE.read_text(encoding="utf-8")],
+    }
+
+
 def main():
     workflow = json.loads(SOURCE.read_text(encoding="utf-8"))
     nodes = {node["id"]: node for node in workflow["nodes"] if node["id"] != 1}
@@ -141,10 +156,11 @@ def main():
     nodes[20] = spectrum_node(20, "Ref2VA Spectrum", 6, 7, -600, 430)
     nodes[21] = sage_node(21, "Ref2VA SageAttention3", 7, 8, -170, 430)
     nodes[22] = model_route_node(300, 700)
+    nodes[23] = external_script_node(1120, -560)
 
     sampler = nodes[6]
     sampler["pos"] = [300, -120]
-    sampler["size"] = [590, 720]
+    sampler["size"] = [650, 780]
     sampler["type"] = "H3MultishotMemoryDiskSampler"
     sampler["title"] = "Optimized Variable-Duration Memory Chain (Disk / Resume)"
     sampler["inputs"] = [
@@ -154,6 +170,7 @@ def main():
         {"name": "audio_vae", "type": "VAE", "link": 11},
         {"name": "persistent_refs", "type": "H3_REFS", "link": 14},
         {"name": "ref2va_model", "type": "MODEL", "link": 21},
+        {"name": "script_override", "type": "STRING", "link": 22},
     ]
     sampler["outputs"] = [
         {"name": "video", "type": "VIDEO", "links": [19]},
@@ -161,7 +178,13 @@ def main():
         {"name": "segments_rendered", "type": "INT", "links": None},
     ]
     sampler["widgets_values"] = [
-        SAMPLE.read_text(encoding="utf-8"),
+        (
+            "frame_count: 243\n"
+            "[Shot 1] Built-in fallback prompt. The external script_override "
+            "input is connected in the optimized workflow.\n\n"
+            "overall_soundscape: Quiet room tone.\n"
+            "non_diegetic_music: N/A."
+        ),
         0,
         960,
         544,
@@ -231,6 +254,9 @@ def main():
             "Set **H3 Model Route** to `FL2VA only`, `Ref2VA only`, or "
             "`Mixed per segment`. It is lazy: unused loader/LoRA/Spectrum/"
             "Sage chains are not evaluated. No rewiring or muting is needed.\n\n"
+            "Edit the large **H3 segment script** text node. Its connected "
+            "`script_override` socket takes precedence over the sampler's "
+            "small built-in fallback text box.\n\n"
             "The LoRA nodes reproduce the validated optimized source graph. "
             "Choose the desired LoRA and strength there before rendering.\n\n"
             "Put `frame_count: N` inside each outer `---` prompt block. The "
@@ -251,8 +277,8 @@ def main():
     ]
 
     workflow["id"] = "h3-memory-optimized-int8-variable"
-    workflow["last_node_id"] = 22
-    workflow["last_link_id"] = 21
+    workflow["last_node_id"] = 23
+    workflow["last_link_id"] = 22
     workflow["nodes"] = [nodes[node_id] for node_id in sorted(nodes)]
     workflow["links"] = [
         [1, 14, 0, 15, 0, "MODEL"],
@@ -276,6 +302,7 @@ def main():
         [19, 6, 0, 8, 0, "VIDEO"],
         [20, 22, 0, 6, 0, "MODEL"],
         [21, 22, 1, 6, 5, "MODEL"],
+        [22, 23, 0, 6, 6, "STRING"],
     ]
     workflow["groups"] = [
         {
@@ -287,6 +314,11 @@ def main():
             "title": "Optional persistent references",
             "bounding": [-1490, 1030, 1390, 830],
             "color": "#594f3f",
+        },
+        {
+            "title": "Large external H3 script editor",
+            "bounding": [1080, -600, 980, 940],
+            "color": "#43566b",
         },
     ]
     OUTPUT.write_text(json.dumps(workflow, indent=2), encoding="utf-8")

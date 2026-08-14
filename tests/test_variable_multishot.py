@@ -40,6 +40,9 @@ def test_frame_schedule():
         243,
     )
     assert frames == [124, 175]
+    assert utils._resolve_script_input("fallback", None) == "fallback"
+    assert utils._resolve_script_input("fallback", "  ") == "fallback"
+    assert utils._resolve_script_input("fallback", "external") == "external"
 
 
 def test_reference_routing():

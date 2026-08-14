@@ -1,8 +1,8 @@
 {
   "id": "h3-memory-optimized-int8-variable",
   "revision": 0,
-  "last_node_id": 22,
-  "last_link_id": 21,
+  "last_node_id": 23,
+  "last_link_id": 22,
   "nodes": [
     {
       "id": 2,
@@ -164,8 +164,8 @@
         -120
       ],
       "size": [
-        590,
-        720
+        650,
+        780
       ],
       "title": "Optimized Variable-Duration Memory Chain (Disk / Resume)",
       "inputs": [
@@ -198,6 +198,11 @@
           "name": "ref2va_model",
           "type": "MODEL",
           "link": 21
+        },
+        {
+          "name": "script_override",
+          "type": "STRING",
+          "link": 22
         }
       ],
       "outputs": [
@@ -220,7 +225,7 @@
         }
       ],
       "widgets_values": [
-        "frame_count: 124\n[Shot 1] From 00:00.000 to 00:02.000, a cinematic medium-wide shot shows Mara, a woman in her early forties with a narrow freckled face, grey-green eyes, a dark brown braid, and a red raincoat, standing beside Elias, a man in his mid-forties with a square weathered face, short black hair, and a navy wool coat, on a rain-darkened harbor pier at dawn. They pull together on a heavy wet rope while the camera tracks left beside them. [Shot 2] At 00:02.000, cut to a tight two-shot for the remaining three seconds as the rope goes taut; Mara and Elias exchange a relieved look and brace shoulder-to-shoulder. Hold their stable faces, wardrobe, positions, and the taut rope through the end.\n\noverall_soundscape: Light rain, rope fibers straining, boots scraping wet timber, distant gulls and harbor water.\nnon_diegetic_music: N/A.\n---\nframe_count: 362\n[Shot 1] Continue the same uninterrupted camera shot for the first fifteen seconds of a twenty-second action. Mara, with the same narrow freckled face, grey-green eyes, dark brown braid, and red raincoat, and Elias, with the same square weathered face, short black hair, and navy wool coat, remain shoulder-to-shoulder on the same dawn harbor pier. The camera begins a slow continuous orbit around them as they walk the taut rope toward a small fishing boat. Preserve their screen direction, damp wardrobe, rope position, fog, and amber harbor light. Do not cut. End mid-action with the orbit still moving, Mara's right hand reaching toward the boat rail, and Elias one step behind holding the rope.\n\noverall_soundscape: Continuous light rain, measured footsteps on wet timber, rope dragging, water against the hull.\nnon_diegetic_music: A low sustained cello note begins quietly.\n---\nframe_count: 124\n[Shot 1] Continue directly from the preceding final frame without a cut to complete the remaining five seconds of the same twenty-second camera shot. Maintain the orbit's direction, speed, lens, dawn fog, wet pier, rope geometry, and both characters' exact appearance and wardrobe. Mara's right hand closes around the boat rail while Elias secures the rope around the mooring post. The camera completes the orbit and settles into a front three-quarter view. Hold the completed mooring and their calm breathing at the end.\n\noverall_soundscape: Rain and harbor water remain continuous; the rope tightens around wood with a short creak.\nnon_diegetic_music: The same low cello note continues without a break.\n---\nframe_count: 243\n[Shot 1] Cut to a new ten-second camera shot inside the fishing boat's small wheelhouse. Mara retains her narrow freckled face, grey-green eyes, dark brown braid, and red raincoat. Elias retains his square weathered face, short black hair, and navy wool coat. In a medium two-shot, Mara studies a damp nautical chart while Elias wipes rain from the forward window. At 00:05.000 the camera slowly pushes toward the chart as Mara points to a marked channel; this is a camera move, not another cut. Elias leans beside her and follows her finger. End with both faces visible above the chart.\n\noverall_soundscape: Rain tapping the wheelhouse roof, cloth across wet glass, paper rustling, low engine-room hum.\nnon_diegetic_music: Sparse cello with one soft piano tone.\n---\nframe_count: 124\n[Shot 1] Cut to a five-second exterior close two-shot through the rain-speckled wheelhouse window. Mara and Elias preserve the same faces, hair, red raincoat, navy wool coat, and positions from the previous segment. They look toward the foggy channel together. Mara quietly says: <d>[English] We leave on the next tide.</d> Elias nods once after her mouth closes. Hold their resolved expressions and the rain moving across the glass.\n\noverall_soundscape: Rain on glass, distant harbor water, muted wheelhouse hum beneath Mara's voice.\nnon_diegetic_music: The cello and piano resolve into a soft final chord.\n",
+        "frame_count: 243\n[Shot 1] Built-in fallback prompt. The external script_override input is connected in the optimized workflow.\n\noverall_soundscape: Quiet room tone.\nnon_diegetic_music: N/A.",
         0,
         960,
         544,
@@ -292,7 +297,7 @@
       "inputs": [],
       "outputs": [],
       "widgets_values": [
-        "## Optimized H3 Memory chain\n\nBoth INT8 models are patched once through **MiniMax-H3 Turbo LoRA -> Spectrum -> SageAttention3**. The sampler uses FL2VA for a segment with no routed native reference blocks and Ref2VA only when that segment uses `<Picture N>`, `<Video N>`, or active audio refs.\n\nSet **H3 Model Route** to `FL2VA only`, `Ref2VA only`, or `Mixed per segment`. It is lazy: unused loader/LoRA/Spectrum/Sage chains are not evaluated. No rewiring or muting is needed.\n\nThe LoRA nodes reproduce the validated optimized source graph. Choose the desired LoRA and strength there before rendering.\n\nPut `frame_count: N` inside each outer `---` prompt block. The sampler strips it before conditioning and uses it for that segment's latent length. A block without it uses `frames_per_shot`. Internal `[Shot N] At MM:SS.mmm` camera cuts can occur at arbitrary times inside a segment and do not need to match generation boundaries.\n\nReference loaders are muted by default. Enable and select only the assets required by the script. `auto_prompt_aware` compacts visual labels per segment. The Disk/Resume sampler writes lossless segment intermediates and PNG memory checkpoints immediately, then returns a lazy VIDEO after final assembly. Leave `run_name` empty for a unique logged name on every queue. If interrupted, paste that name back into the widget to resume. LoRA identity is fingerprinted automatically; `plan_tag` is only an optional manual note."
+        "## Optimized H3 Memory chain\n\nBoth INT8 models are patched once through **MiniMax-H3 Turbo LoRA -> Spectrum -> SageAttention3**. The sampler uses FL2VA for a segment with no routed native reference blocks and Ref2VA only when that segment uses `<Picture N>`, `<Video N>`, or active audio refs.\n\nSet **H3 Model Route** to `FL2VA only`, `Ref2VA only`, or `Mixed per segment`. It is lazy: unused loader/LoRA/Spectrum/Sage chains are not evaluated. No rewiring or muting is needed.\n\nEdit the large **H3 segment script** text node. Its connected `script_override` socket takes precedence over the sampler's small built-in fallback text box.\n\nThe LoRA nodes reproduce the validated optimized source graph. Choose the desired LoRA and strength there before rendering.\n\nPut `frame_count: N` inside each outer `---` prompt block. The sampler strips it before conditioning and uses it for that segment's latent length. A block without it uses `frames_per_shot`. Internal `[Shot N] At MM:SS.mmm` camera cuts can occur at arbitrary times inside a segment and do not need to match generation boundaries.\n\nReference loaders are muted by default. Enable and select only the assets required by the script. `auto_prompt_aware` compacts visual labels per segment. The Disk/Resume sampler writes lossless segment intermediates and PNG memory checkpoints immediately, then returns a lazy VIDEO after final assembly. Leave `run_name` empty for a unique logged name on every queue. If interrupted, paste that name back into the widget to resume. LoRA identity is fingerprinted automatically; `plan_tag` is only an optional manual note."
       ],
       "color": "#24364b",
       "bgcolor": "#13202f"
@@ -754,6 +759,32 @@
       "widgets_values": [
         "FL2VA only"
       ]
+    },
+    {
+      "id": 23,
+      "type": "PrimitiveStringMultiline",
+      "pos": [
+        1120,
+        -560
+      ],
+      "size": [
+        900,
+        860
+      ],
+      "title": "H3 segment script (overrides sampler text widget)",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            22
+          ]
+        }
+      ],
+      "widgets_values": [
+        "frame_count: 124\n[Shot 1] From 00:00.000 to 00:02.000, a cinematic medium-wide shot shows Mara, a woman in her early forties with a narrow freckled face, grey-green eyes, a dark brown braid, and a red raincoat, standing beside Elias, a man in his mid-forties with a square weathered face, short black hair, and a navy wool coat, on a rain-darkened harbor pier at dawn. They pull together on a heavy wet rope while the camera tracks left beside them. [Shot 2] At 00:02.000, cut to a tight two-shot for the remaining three seconds as the rope goes taut; Mara and Elias exchange a relieved look and brace shoulder-to-shoulder. Hold their stable faces, wardrobe, positions, and the taut rope through the end.\n\noverall_soundscape: Light rain, rope fibers straining, boots scraping wet timber, distant gulls and harbor water.\nnon_diegetic_music: N/A.\n---\nframe_count: 362\n[Shot 1] Continue the same uninterrupted camera shot for the first fifteen seconds of a twenty-second action. Mara, with the same narrow freckled face, grey-green eyes, dark brown braid, and red raincoat, and Elias, with the same square weathered face, short black hair, and navy wool coat, remain shoulder-to-shoulder on the same dawn harbor pier. The camera begins a slow continuous orbit around them as they walk the taut rope toward a small fishing boat. Preserve their screen direction, damp wardrobe, rope position, fog, and amber harbor light. Do not cut. End mid-action with the orbit still moving, Mara's right hand reaching toward the boat rail, and Elias one step behind holding the rope.\n\noverall_soundscape: Continuous light rain, measured footsteps on wet timber, rope dragging, water against the hull.\nnon_diegetic_music: A low sustained cello note begins quietly.\n---\nframe_count: 124\n[Shot 1] Continue directly from the preceding final frame without a cut to complete the remaining five seconds of the same twenty-second camera shot. Maintain the orbit's direction, speed, lens, dawn fog, wet pier, rope geometry, and both characters' exact appearance and wardrobe. Mara's right hand closes around the boat rail while Elias secures the rope around the mooring post. The camera completes the orbit and settles into a front three-quarter view. Hold the completed mooring and their calm breathing at the end.\n\noverall_soundscape: Rain and harbor water remain continuous; the rope tightens around wood with a short creak.\nnon_diegetic_music: The same low cello note continues without a break.\n---\nframe_count: 243\n[Shot 1] Cut to a new ten-second camera shot inside the fishing boat's small wheelhouse. Mara retains her narrow freckled face, grey-green eyes, dark brown braid, and red raincoat. Elias retains his square weathered face, short black hair, and navy wool coat. In a medium two-shot, Mara studies a damp nautical chart while Elias wipes rain from the forward window. At 00:05.000 the camera slowly pushes toward the chart as Mara points to a marked channel; this is a camera move, not another cut. Elias leans beside her and follows her finger. End with both faces visible above the chart.\n\noverall_soundscape: Rain tapping the wheelhouse roof, cloth across wet glass, paper rustling, low engine-room hum.\nnon_diegetic_music: Sparse cello with one soft piano tone.\n---\nframe_count: 124\n[Shot 1] Cut to a five-second exterior close two-shot through the rain-speckled wheelhouse window. Mara and Elias preserve the same faces, hair, red raincoat, navy wool coat, and positions from the previous segment. They look toward the foggy channel together. Mara quietly says: <d>[English] We leave on the next tide.</d> Elias nods once after her mouth closes. Hold their resolved expressions and the rain moving across the glass.\n\noverall_soundscape: Rain on glass, distant harbor water, muted wheelhouse hum beneath Mara's voice.\nnon_diegetic_music: The cello and piano resolve into a soft final chord.\n"
+      ]
     }
   ],
   "links": [
@@ -924,6 +955,14 @@
       6,
       5,
       "MODEL"
+    ],
+    [
+      22,
+      23,
+      0,
+      6,
+      6,
+      "STRING"
     ]
   ],
   "groups": [
@@ -946,6 +985,16 @@
         830
       ],
       "color": "#594f3f"
+    },
+    {
+      "title": "Large external H3 script editor",
+      "bounding": [
+        1080,
+        -600,
+        980,
+        940
+      ],
+      "color": "#43566b"
     }
   ],
   "version": 0.4

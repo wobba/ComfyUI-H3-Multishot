@@ -102,6 +102,10 @@ See [Changelog](#changelog).
   RSS. Keep `gpu_cleanup_between_segments=true` so each next segment reloads
   from a clean CUDA allocator instead of accumulating fragmentation across
   repeated text-encoder/DiT/VAE swaps.
+  Both Memory samplers also expose an optional `script_override` STRING socket.
+  Connect ComfyUI's **Text (Multiline)** node for a large editor; any non-empty
+  connected value overrides the built-in script widget without changing
+  existing saved workflows.
 - **H3 Model Route (lazy FL2VA / Ref2VA)** - one workflow dropdown with three
   modes: `FL2VA only`, `Ref2VA only`, and `Mixed per segment`. Only model paths
   needed by the selected mode are evaluated, including their LoRA, Spectrum,

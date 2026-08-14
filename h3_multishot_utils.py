@@ -255,6 +255,14 @@ def _resolve_segment_frames(
     return prompts, resolved
 
 
+def _resolve_script_input(script, script_override=None):
+    """Use a connected external text node when it contains non-empty text."""
+    if script_override is not None and str(script_override).strip():
+        print("[H3Memory] using connected script_override input", flush=True)
+        return str(script_override)
+    return script
+
+
 class H3ScriptSplit:
     @classmethod
     def INPUT_TYPES(cls):
@@ -1885,6 +1893,12 @@ class H3MultishotMemorySampler:
                            "Labels are compacted and rewritten locally. If the "
                            "schedule ends early, trailing segments use no visuals.",
             }),
+            "script_override": ("STRING", {
+                "forceInput": True,
+                "multiline": True,
+                "tooltip": "Optional external multiline STRING. Non-empty text "
+                           "overrides the built-in script widget.",
+            }),
         }}
 
     RETURN_TYPES = ("IMAGE", "AUDIO", "INT")
@@ -1898,10 +1912,12 @@ class H3MultishotMemorySampler:
             sampler_name="res_multistep", scheduler="simple", persistent_refs=None,
             ref2va_model=None, frame_schedule="",
             visual_reference_mode="always", visual_reference_schedule="",
-            audio_reference_mode="always", audio_reference_schedule=""):
+            audio_reference_mode="always", audio_reference_schedule="",
+            script_override=None):
         import torch
         from comfy_extras import nodes_minimax_h3 as mmh3
 
+        script = _resolve_script_input(script, script_override)
         shots, n, segment_frames = _prepare_memory_plan(
             script,
             shot_count,
