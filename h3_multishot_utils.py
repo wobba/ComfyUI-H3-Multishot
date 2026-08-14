@@ -1602,8 +1602,14 @@ def _iter_memory_segments(
             if ref_blocks and ref2va_model is not None
             else "primary"
         )
+        model_source = None
+        if hasattr(current_model, "get_attachment"):
+            model_source = current_model.get_attachment(
+                "h3_source_model_name"
+            )
         print(
             f"[H3Memory] segment {si + 1} model route: {model_mode}; "
+            f"model={model_source or 'unknown'}; "
             f"native reference blocks={len(ref_blocks)}",
             flush=True,
         )
