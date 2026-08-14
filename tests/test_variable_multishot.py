@@ -121,7 +121,12 @@ def test_disk_manifest_helpers():
     assert was_generated and generated.startswith("h3_")
     assert disk._legacy_settings_match(
         {"seed": 1, "plan_tag": "old-manual-tag"},
-        {"seed": 1, "plan_tag": "", "primary_loras": ["auto"]},
+        {
+            "seed": 1,
+            "plan_tag": "",
+            "primary_loras": ["auto"],
+            "gpu_cleanup_between_segments": True,
+        },
     )
     import torch
     assert disk._tensor_fingerprint(torch.zeros(1, 8)) != (

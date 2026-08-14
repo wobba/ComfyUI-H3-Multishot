@@ -429,6 +429,15 @@ class H3MultishotMemoryDiskSampler:
                            "automatically fingerprint LoRA name and strength.",
             },
         )
+        schema["optional"]["gpu_cleanup_between_segments"] = (
+            "BOOLEAN",
+            {
+                "default": True,
+                "tooltip": "Fully unload GPU models and clear CUDA allocator "
+                           "state after each durable segment. Recommended for "
+                           "long full-INT8 runs.",
+            },
+        )
         return schema
 
     RETURN_TYPES = ("VIDEO", "STRING", "INT")
@@ -467,6 +476,7 @@ class H3MultishotMemoryDiskSampler:
         resume=True,
         keep_segments=False,
         plan_tag="",
+        gpu_cleanup_between_segments=True,
     ):
         import gc
         import folder_paths
@@ -520,6 +530,9 @@ class H3MultishotMemoryDiskSampler:
             "ref2va_loras": _model_lora_tags(ref2va_model),
             "text_encoder": _clip_source(clip),
             "plan_tag": str(plan_tag or ""),
+            "gpu_cleanup_between_segments": bool(
+                gpu_cleanup_between_segments
+            ),
         }
         plan_hash = _plan_hash(settings)
         root = (
@@ -688,6 +701,12 @@ class H3MultishotMemoryDiskSampler:
             except Exception:
                 pass
             _release_process_memory()
+            if gpu_cleanup_between_segments:
+                print("[H3Disk] unloading GPU models before next segment",
+                      flush=True)
+                model_management.unload_all_models()
+                model_management.cleanup_models()
+                model_management.soft_empty_cache(force=True)
 
         segment_paths = [
             root / entry["file"] for entry in manifest["segments"]

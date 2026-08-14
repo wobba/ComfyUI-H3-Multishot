@@ -99,7 +99,9 @@ See [Changelog](#changelog).
   `history_storage=system_ram`, and `offline_smoothing_replay=false`. Spectrum
   remains active, but avoids retaining every denoising-step feature. The disk
   sampler also runs `malloc_trim` after every durable segment and logs process
-  RSS.
+  RSS. Keep `gpu_cleanup_between_segments=true` so each next segment reloads
+  from a clean CUDA allocator instead of accumulating fragmentation across
+  repeated text-encoder/DiT/VAE swaps.
 - **H3 Optional Image (I2V on/off)** - a real toggle for an optional image
   input. A normal switch node cannot express "no image" (both branches are
   required), so turning I2V off usually ends up feeding a black placeholder
