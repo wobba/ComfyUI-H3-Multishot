@@ -94,6 +94,25 @@ def sage_node(node_id, title, input_link, output_link, x, y):
     }
 
 
+def model_route_node(x, y):
+    return {
+        "id": 22,
+        "type": "H3ModelRoute",
+        "pos": [x, y],
+        "size": [420, 150],
+        "title": "Load only the H3 model path this run needs",
+        "inputs": [
+            {"name": "fl2va_model", "type": "MODEL", "link": 4},
+            {"name": "ref2va_model", "type": "MODEL", "link": 8},
+        ],
+        "outputs": [
+            {"name": "model", "type": "MODEL", "links": [20]},
+            {"name": "ref2va_model", "type": "MODEL", "links": [21]},
+        ],
+        "widgets_values": ["FL2VA only"],
+    }
+
+
 def main():
     workflow = json.loads(SOURCE.read_text(encoding="utf-8"))
     nodes = {node["id"]: node for node in workflow["nodes"] if node["id"] != 1}
@@ -121,6 +140,7 @@ def main():
     nodes[19] = turbo_node(19, "Ref2VA LoRA", 5, 6, -1010, 430)
     nodes[20] = spectrum_node(20, "Ref2VA Spectrum", 6, 7, -600, 430)
     nodes[21] = sage_node(21, "Ref2VA SageAttention3", 7, 8, -170, 430)
+    nodes[22] = model_route_node(300, 700)
 
     sampler = nodes[6]
     sampler["pos"] = [300, -120]
@@ -128,12 +148,12 @@ def main():
     sampler["type"] = "H3MultishotMemoryDiskSampler"
     sampler["title"] = "Optimized Variable-Duration Memory Chain (Disk / Resume)"
     sampler["inputs"] = [
-        {"name": "model", "type": "MODEL", "link": 4},
+        {"name": "model", "type": "MODEL", "link": 20},
         {"name": "clip", "type": "CLIP", "link": 9},
         {"name": "video_vae", "type": "VAE", "link": 10},
         {"name": "audio_vae", "type": "VAE", "link": 11},
         {"name": "persistent_refs", "type": "H3_REFS", "link": 14},
-        {"name": "ref2va_model", "type": "MODEL", "link": 8},
+        {"name": "ref2va_model", "type": "MODEL", "link": 21},
     ]
     sampler["outputs"] = [
         {"name": "video", "type": "VIDEO", "links": [19]},
@@ -208,6 +228,9 @@ def main():
             "SageAttention3**. The sampler uses FL2VA for a segment with no "
             "routed native reference blocks and Ref2VA only when that segment "
             "uses `<Picture N>`, `<Video N>`, or active audio refs.\n\n"
+            "Set **H3 Model Route** to `FL2VA only`, `Ref2VA only`, or "
+            "`Mixed per segment`. It is lazy: unused loader/LoRA/Spectrum/"
+            "Sage chains are not evaluated. No rewiring or muting is needed.\n\n"
             "The LoRA nodes reproduce the validated optimized source graph. "
             "Choose the desired LoRA and strength there before rendering.\n\n"
             "Put `frame_count: N` inside each outer `---` prompt block. The "
@@ -228,29 +251,31 @@ def main():
     ]
 
     workflow["id"] = "h3-memory-optimized-int8-variable"
-    workflow["last_node_id"] = 21
-    workflow["last_link_id"] = 19
+    workflow["last_node_id"] = 22
+    workflow["last_link_id"] = 21
     workflow["nodes"] = [nodes[node_id] for node_id in sorted(nodes)]
     workflow["links"] = [
         [1, 14, 0, 15, 0, "MODEL"],
         [2, 15, 0, 16, 0, "MODEL"],
         [3, 16, 0, 17, 0, "MODEL"],
-        [4, 17, 0, 6, 0, "MODEL"],
+        [4, 17, 0, 22, 0, "MODEL"],
         [5, 18, 0, 19, 0, "MODEL"],
         [6, 19, 0, 20, 0, "MODEL"],
         [7, 20, 0, 21, 0, "MODEL"],
-        [8, 21, 0, 6, 19, "MODEL"],
+        [8, 21, 0, 22, 1, "MODEL"],
         [9, 2, 0, 6, 1, "CLIP"],
         [10, 3, 0, 6, 2, "VAE"],
         [11, 4, 0, 6, 3, "VAE"],
         [12, 3, 0, 5, 0, "VAE"],
         [13, 4, 0, 5, 1, "VAE"],
-        [14, 5, 0, 6, 18, "H3_REFS"],
-        [15, 10, 0, 5, 7, "IMAGE"],
-        [16, 11, 0, 5, 8, "IMAGE"],
-        [17, 12, 0, 5, 9, "IMAGE"],
-        [18, 13, 0, 5, 22, "AUDIO"],
+        [14, 5, 0, 6, 4, "H3_REFS"],
+        [15, 10, 0, 5, 2, "IMAGE"],
+        [16, 11, 0, 5, 3, "IMAGE"],
+        [17, 12, 0, 5, 4, "IMAGE"],
+        [18, 13, 0, 5, 5, "AUDIO"],
         [19, 6, 0, 8, 0, "VIDEO"],
+        [20, 22, 0, 6, 0, "MODEL"],
+        [21, 22, 1, 6, 5, "MODEL"],
     ]
     workflow["groups"] = [
         {

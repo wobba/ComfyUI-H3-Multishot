@@ -1,8 +1,8 @@
 {
   "id": "h3-memory-optimized-int8-variable",
   "revision": 0,
-  "last_node_id": 21,
-  "last_link_id": 19,
+  "last_node_id": 22,
+  "last_link_id": 21,
   "nodes": [
     {
       "id": 2,
@@ -172,7 +172,7 @@
         {
           "name": "model",
           "type": "MODEL",
-          "link": 4
+          "link": 20
         },
         {
           "name": "clip",
@@ -197,7 +197,7 @@
         {
           "name": "ref2va_model",
           "type": "MODEL",
-          "link": 8
+          "link": 21
         }
       ],
       "outputs": [
@@ -292,7 +292,7 @@
       "inputs": [],
       "outputs": [],
       "widgets_values": [
-        "## Optimized H3 Memory chain\n\nBoth INT8 models are patched once through **MiniMax-H3 Turbo LoRA -> Spectrum -> SageAttention3**. The sampler uses FL2VA for a segment with no routed native reference blocks and Ref2VA only when that segment uses `<Picture N>`, `<Video N>`, or active audio refs.\n\nThe LoRA nodes reproduce the validated optimized source graph. Choose the desired LoRA and strength there before rendering.\n\nPut `frame_count: N` inside each outer `---` prompt block. The sampler strips it before conditioning and uses it for that segment's latent length. A block without it uses `frames_per_shot`. Internal `[Shot N] At MM:SS.mmm` camera cuts can occur at arbitrary times inside a segment and do not need to match generation boundaries.\n\nReference loaders are muted by default. Enable and select only the assets required by the script. `auto_prompt_aware` compacts visual labels per segment. The Disk/Resume sampler writes lossless segment intermediates and PNG memory checkpoints immediately, then returns a lazy VIDEO after final assembly. Leave `run_name` empty for a unique logged name on every queue. If interrupted, paste that name back into the widget to resume. LoRA identity is fingerprinted automatically; `plan_tag` is only an optional manual note."
+        "## Optimized H3 Memory chain\n\nBoth INT8 models are patched once through **MiniMax-H3 Turbo LoRA -> Spectrum -> SageAttention3**. The sampler uses FL2VA for a segment with no routed native reference blocks and Ref2VA only when that segment uses `<Picture N>`, `<Video N>`, or active audio refs.\n\nSet **H3 Model Route** to `FL2VA only`, `Ref2VA only`, or `Mixed per segment`. It is lazy: unused loader/LoRA/Spectrum/Sage chains are not evaluated. No rewiring or muting is needed.\n\nThe LoRA nodes reproduce the validated optimized source graph. Choose the desired LoRA and strength there before rendering.\n\nPut `frame_count: N` inside each outer `---` prompt block. The sampler strips it before conditioning and uses it for that segment's latent length. A block without it uses `frames_per_shot`. Internal `[Shot N] At MM:SS.mmm` camera cuts can occur at arbitrary times inside a segment and do not need to match generation boundaries.\n\nReference loaders are muted by default. Enable and select only the assets required by the script. `auto_prompt_aware` compacts visual labels per segment. The Disk/Resume sampler writes lossless segment intermediates and PNG memory checkpoints immediately, then returns a lazy VIDEO after final assembly. Leave `run_name` empty for a unique logged name on every queue. If interrupted, paste that name back into the widget to resume. LoRA identity is fingerprinted automatically; `plan_tag` is only an optional manual note."
       ],
       "color": "#24364b",
       "bgcolor": "#13202f"
@@ -710,6 +710,50 @@
         "sageattn3",
         false
       ]
+    },
+    {
+      "id": 22,
+      "type": "H3ModelRoute",
+      "pos": [
+        300,
+        700
+      ],
+      "size": [
+        420,
+        150
+      ],
+      "title": "Load only the H3 model path this run needs",
+      "inputs": [
+        {
+          "name": "fl2va_model",
+          "type": "MODEL",
+          "link": 4
+        },
+        {
+          "name": "ref2va_model",
+          "type": "MODEL",
+          "link": 8
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "links": [
+            20
+          ]
+        },
+        {
+          "name": "ref2va_model",
+          "type": "MODEL",
+          "links": [
+            21
+          ]
+        }
+      ],
+      "widgets_values": [
+        "FL2VA only"
+      ]
     }
   ],
   "links": [
@@ -741,7 +785,7 @@
       4,
       17,
       0,
-      6,
+      22,
       0,
       "MODEL"
     ],
@@ -773,8 +817,8 @@
       8,
       21,
       0,
-      6,
-      19,
+      22,
+      1,
       "MODEL"
     ],
     [
@@ -822,7 +866,7 @@
       5,
       0,
       6,
-      18,
+      4,
       "H3_REFS"
     ],
     [
@@ -830,7 +874,7 @@
       10,
       0,
       5,
-      7,
+      2,
       "IMAGE"
     ],
     [
@@ -838,7 +882,7 @@
       11,
       0,
       5,
-      8,
+      3,
       "IMAGE"
     ],
     [
@@ -846,7 +890,7 @@
       12,
       0,
       5,
-      9,
+      4,
       "IMAGE"
     ],
     [
@@ -854,7 +898,7 @@
       13,
       0,
       5,
-      22,
+      5,
       "AUDIO"
     ],
     [
@@ -864,6 +908,22 @@
       8,
       0,
       "VIDEO"
+    ],
+    [
+      20,
+      22,
+      0,
+      6,
+      0,
+      "MODEL"
+    ],
+    [
+      21,
+      22,
+      1,
+      6,
+      5,
+      "MODEL"
     ]
   ],
   "groups": [

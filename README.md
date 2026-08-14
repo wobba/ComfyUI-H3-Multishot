@@ -102,6 +102,11 @@ See [Changelog](#changelog).
   RSS. Keep `gpu_cleanup_between_segments=true` so each next segment reloads
   from a clean CUDA allocator instead of accumulating fragmentation across
   repeated text-encoder/DiT/VAE swaps.
+- **H3 Model Route (lazy FL2VA / Ref2VA)** - one workflow dropdown with three
+  modes: `FL2VA only`, `Ref2VA only`, and `Mixed per segment`. Only model paths
+  needed by the selected mode are evaluated, including their LoRA, Spectrum,
+  and SageAttention3 nodes. Ref2VA-only is routed into the sampler's required
+  primary model input automatically; no manual rewiring is needed.
 - **H3 Optional Image (I2V on/off)** - a real toggle for an optional image
   input. A normal switch node cannot express "no image" (both branches are
   required), so turning I2V off usually ends up feeding a black placeholder

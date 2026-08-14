@@ -142,8 +142,29 @@ def test_disk_manifest_helpers():
     assert first.hexdigest() != second.hexdigest()
 
 
+def test_lazy_model_route():
+    router = load_module("h3_model_router").H3ModelRoute()
+    fl2va = object()
+    ref2va = object()
+    assert router.check_lazy_status("FL2VA only", None, None) == [
+        "fl2va_model"
+    ]
+    assert router.check_lazy_status("Ref2VA only", None, None) == [
+        "ref2va_model"
+    ]
+    assert router.check_lazy_status("Mixed per segment", fl2va, None) == [
+        "ref2va_model"
+    ]
+    assert router.route("FL2VA only", fl2va, None) == (fl2va, None)
+    assert router.route("Ref2VA only", None, ref2va) == (ref2va, None)
+    assert router.route("Mixed per segment", fl2va, ref2va) == (
+        fl2va, ref2va
+    )
+
+
 if __name__ == "__main__":
     test_frame_schedule()
     test_reference_routing()
     test_disk_manifest_helpers()
+    test_lazy_model_route()
     print("Variable multishot tests passed.")
