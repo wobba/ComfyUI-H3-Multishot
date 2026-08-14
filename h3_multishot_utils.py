@@ -134,65 +134,6 @@ def _parse_script(text):
     return shots
 
 
-def _parse_frame_schedule(text, segment_count, default_frames, align=None):
-    """Resolve one frame count per outer ``---`` generation segment.
-
-    Missing entries use ``default_frames`` rather than repeating the last
-    explicit value. JSON accepts null/empty entries; plain text accepts
-    delimiters such as ``124| |362``.
-    """
-    raw = (text or "").strip()
-    values = []
-    if raw:
-        try:
-            data = json.loads(raw)
-            if isinstance(data, dict):
-                data = data.get("frames", data.get("segments", data))
-            if isinstance(data, (int, float, str)) and not isinstance(data, bool):
-                data = [data]
-            elif not isinstance(data, list):
-                raise ValueError(
-                    "frame_schedule JSON must be a list or "
-                    "{\"frames\": [...]} object"
-                )
-            values = data
-        except json.JSONDecodeError:
-            values = re.split(r"[|;,\n]", raw)
-
-    resolved = []
-    for index in range(segment_count):
-        value = values[index] if index < len(values) else None
-        if value is None or (isinstance(value, str) and not value.strip()):
-            frames = int(default_frames)
-        elif isinstance(value, bool):
-            raise ValueError(
-                f"frame_schedule entry {index + 1} must be a frame count, "
-                "not a boolean"
-            )
-        else:
-            try:
-                frames = int(value)
-            except (TypeError, ValueError) as error:
-                raise ValueError(
-                    f"frame_schedule entry {index + 1} is not an integer: "
-                    f"{value!r}"
-                ) from error
-        if frames < 5:
-            raise ValueError(
-                f"frame_schedule entry {index + 1} must be at least 5 frames"
-            )
-        resolved.append(int(align(frames) if align else frames))
-
-    if len(values) > segment_count:
-        print(
-            f"[H3Memory] frame_schedule has {len(values)} entries for "
-            f"{segment_count} segments; ignoring {len(values) - segment_count} "
-            "extra value(s).",
-            flush=True,
-        )
-    return resolved
-
-
 _FRAME_COUNT_DIRECTIVE = re.compile(
     r"(?im)^\s*frame_count\s*:\s*(\d+)\s*$"
 )
@@ -230,28 +171,15 @@ def _extract_inline_frame_counts(shots):
 
 def _resolve_segment_frames(
     shots,
-    frame_schedule,
     default_frames,
     align=None,
 ):
-    """Resolve inline directives, legacy schedule, then node default."""
+    """Resolve inline frame counts, falling back to the node default."""
     prompts, inline_frames = _extract_inline_frame_counts(shots)
-    scheduled_frames = _parse_frame_schedule(
-        frame_schedule,
-        len(prompts),
-        default_frames,
-        align=None,
-    )
     resolved = []
-    for index, inline in enumerate(inline_frames):
-        frames = inline if inline is not None else scheduled_frames[index]
+    for inline in inline_frames:
+        frames = inline if inline is not None else default_frames
         resolved.append(int(align(frames) if align else frames))
-        if inline is not None and (frame_schedule or "").strip():
-            print(
-                f"[H3Memory] segment {index + 1}: inline frame_count "
-                f"overrides frame_schedule entry.",
-                flush=True,
-            )
     return prompts, resolved
 
 
@@ -1525,8 +1453,7 @@ class H3MultishotSampler:
 
 
 
-def _prepare_memory_plan(script, shot_count, frames_per_shot, frame_schedule,
-                         align_frame_count):
+def _prepare_memory_plan(script, shot_count, frames_per_shot, align_frame_count):
     shots = _parse_script(script)
     n = shot_count if shot_count > 0 else len(shots)
     if len(shots) > n:
@@ -1534,7 +1461,7 @@ def _prepare_memory_plan(script, shot_count, frames_per_shot, frame_schedule,
     while len(shots) < n:
         shots.append(shots[-1])
     shots, segment_frames = _resolve_segment_frames(
-        shots, frame_schedule, frames_per_shot, align_frame_count
+        shots, frames_per_shot, align_frame_count
     )
     print(
         "[H3Memory] segment frame schedule: "
@@ -1814,7 +1741,7 @@ class H3MultishotMemorySampler:
             "height": ("INT", {"default": 544, "min": 32, "max": 4096, "step": 16}),
             "frames_per_shot": ("INT", {"default": 243, "min": 5, "max": 1000,
                 "tooltip": "Default for every segment without an explicit "
-                           "frame_schedule entry. Snaps to H3's 17k+5 grid. "
+                           "inline frame_count. Snaps to H3's 17k+5 grid. "
                            "243 = ~10.1s @24fps."}),
             "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
             "steps": ("INT", {"default": 20, "min": 1, "max": 50}),
@@ -1867,16 +1794,6 @@ class H3MultishotMemorySampler:
                            "or '[2, 2, 1]'. Active audio is locally renumbered "
                            "to <Audio 1..N> for that shot.",
             }),
-            # New widgets stay after every pre-existing widget. Classic
-            # ComfyUI workflows serialize widget values positionally.
-            "frame_schedule": ("STRING", {
-                "default": "",
-                "multiline": False,
-                "tooltip": "Legacy external schedule, e.g. '124|243|362'. "
-                           "Prefer inline frame_count inside each prompt block. "
-                           "Inline values override this widget; missing values "
-                           "use frames_per_shot.",
-            }),
             "visual_reference_mode": (
                 ["always", "auto_prompt_aware", "schedule"],
                 {
@@ -1910,8 +1827,8 @@ class H3MultishotMemorySampler:
             height, frames_per_shot, seed, steps, memory_frames, anchor_frames,
             seed_per_shot=False, start_image=None,
             sampler_name="res_multistep", scheduler="simple", persistent_refs=None,
-            ref2va_model=None, frame_schedule="",
-            visual_reference_mode="always", visual_reference_schedule="",
+            ref2va_model=None, visual_reference_mode="always",
+            visual_reference_schedule="",
             audio_reference_mode="always", audio_reference_schedule="",
             script_override=None):
         import torch
@@ -1922,7 +1839,6 @@ class H3MultishotMemorySampler:
             script,
             shot_count,
             frames_per_shot,
-            frame_schedule,
             mmh3.align_frame_count,
         )
         frames_parts, audio_parts = [], []

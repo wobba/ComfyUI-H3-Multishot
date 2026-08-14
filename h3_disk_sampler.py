@@ -470,7 +470,6 @@ class H3MultishotMemoryDiskSampler:
         ref2va_model=None,
         audio_reference_mode="always",
         audio_reference_schedule="",
-        frame_schedule="",
         visual_reference_mode="always",
         visual_reference_schedule="",
         script_override=None,
@@ -499,7 +498,6 @@ class H3MultishotMemoryDiskSampler:
             script,
             shot_count,
             frames_per_shot,
-            frame_schedule,
             mmh3.align_frame_count,
         )
         settings = {

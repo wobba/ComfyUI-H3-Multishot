@@ -59,8 +59,7 @@ See [Changelog](#changelog).
     `---` prompt block. The sampler removes this control line before text
     encoding and uses it to size that segment's latent. A block without the
     directive uses `frames_per_shot`; every resolved value is aligned to H3's
-    `17n+5` grid. The legacy `frame_schedule` widget remains as a fallback,
-    but inline values win. This does not constrain camera-cut timing:
+    `17n+5` grid. This does not constrain camera-cut timing:
     `[Shot N] At MM:SS.mmm` remains free to place cuts anywhere inside each
     generated segment.
   - **Per-segment FL2VA / Ref2VA:** connect an independently patched Ref2VA

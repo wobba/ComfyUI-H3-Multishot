@@ -200,7 +200,6 @@ def main():
         "simple",
         "auto_speaker_aware",
         "",
-        "",
         "auto_prompt_aware",
         "",
         True,

@@ -12,32 +12,21 @@ def load_module(name):
     return module
 
 
-def test_frame_schedule():
+def test_inline_frame_counts():
     utils = load_module("h3_multishot_utils")
-    assert utils._parse_frame_schedule("", 3, 243) == [243, 243, 243]
-    assert utils._parse_frame_schedule("124||362", 3, 243) == [124, 243, 362]
-    assert utils._parse_frame_schedule(
-        "[124, null, 362]", 3, 243
-    ) == [124, 243, 362]
-    assert utils._parse_frame_schedule("124", 3, 243) == [124, 243, 243]
-    assert utils._parse_frame_schedule(
-        "123", 1, 243, lambda _frames: 124
-    ) == [124]
     prompts, frames = utils._resolve_segment_frames(
         [
             "frame_count: 124\nFirst prompt",
             "Second prompt",
             "frame_count: 362\nThird prompt",
         ],
-        "",
         243,
     )
     assert frames == [124, 243, 362]
     assert prompts == ["First prompt", "Second prompt", "Third prompt"]
     prompts, frames = utils._resolve_segment_frames(
         ["frame_count: 124\nFirst prompt", "Second prompt"],
-        "362|175",
-        243,
+        175,
     )
     assert frames == [124, 175]
     assert utils._resolve_script_input("fallback", None) == "fallback"
@@ -166,7 +155,7 @@ def test_lazy_model_route():
 
 
 if __name__ == "__main__":
-    test_frame_schedule()
+    test_inline_frame_counts()
     test_reference_routing()
     test_disk_manifest_helpers()
     test_lazy_model_route()
