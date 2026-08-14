@@ -697,6 +697,9 @@ class H3MultishotMemoryDiskSampler:
                 "route_report": segment["route_report"],
             })
             _atomic_json(manifest_path, manifest)
+            # The generator holds the yielded dictionary while suspended.
+            # Clearing it releases decoded video/audio before model CPU offload.
+            segment.clear()
             del segment
             try:
                 model_management.soft_empty_cache()
@@ -709,6 +712,7 @@ class H3MultishotMemoryDiskSampler:
                 model_management.unload_all_models()
                 model_management.cleanup_models()
                 model_management.soft_empty_cache(force=True)
+                _release_process_memory()
 
         segment_paths = [
             root / entry["file"] for entry in manifest["segments"]

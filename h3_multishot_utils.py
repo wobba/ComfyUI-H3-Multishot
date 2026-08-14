@@ -1670,7 +1670,7 @@ def _iter_memory_segments(
                 trim = int(round(sample_rate / 24.0))
                 waveform = waveform[..., trim:]
 
-        yield {
+        result = {
             "index": si,
             "images": imgs,
             "waveform": waveform,
@@ -1681,12 +1681,16 @@ def _iter_memory_segments(
             "route_report": route_report,
         }
 
+        # The disk consumer may unload a large DiT while this generator is
+        # suspended. Release every sampling intermediate before yielding so
+        # CPU offload does not overlap with the segment's latent/conditioning.
         del (
             imgs,
             waveform,
             decoded_audio,
             samples,
             out,
+            _denoised,
             latent,
             cond,
             tokens,
@@ -1694,12 +1698,15 @@ def _iter_memory_segments(
             guider,
             noise,
             images,
+            keyframes,
         )
         gc.collect()
         try:
             _mm.soft_empty_cache()
         except Exception:
             pass
+        yield result
+        del result
 
 
 class H3MultishotMemorySampler:
