@@ -101,6 +101,9 @@ See [Changelog](#changelog).
   RSS. Keep `gpu_cleanup_between_segments=true` so each next segment reloads
   from a clean CUDA allocator instead of accumulating fragmentation across
   repeated text-encoder/DiT/VAE swaps.
+  Set `restart_from_segment` to a 1-based segment number to preserve the
+  durable prefix and rerender that segment plus every dependent segment after
+  it. Return the control to `0` after queuing the replacement suffix.
   Both Memory samplers also expose an optional `script_override` STRING socket.
   Connect ComfyUI's **Text (Multiline)** node for a large editor; any non-empty
   connected value overrides the built-in script widget without changing

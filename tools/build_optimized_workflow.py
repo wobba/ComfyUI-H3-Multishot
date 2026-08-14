@@ -206,6 +206,7 @@ def main():
         False,
         "",
         True,
+        0,
     ]
 
     nodes[2]["pos"] = [-1460, 1080]
@@ -271,7 +272,9 @@ def main():
             "a lazy VIDEO after final assembly. Leave `run_name` empty for a "
             "unique logged name on every queue. If interrupted, paste that name "
             "back into the widget to resume. LoRA identity is fingerprinted "
-            "automatically; `plan_tag` is only an optional manual note."
+            "automatically; `plan_tag` is only an optional manual note. To "
+            "replace a bad durable suffix, set `restart_from_segment` to its "
+            "first segment number for one queue, then return it to 0."
         )
     ]
 

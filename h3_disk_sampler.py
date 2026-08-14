@@ -64,6 +64,93 @@ def _legacy_settings_match(previous, current):
     return True
 
 
+def _changed_setting_keys(previous, current):
+    return sorted(
+        key
+        for key in set(previous) | set(current)
+        if previous.get(key) != current.get(key)
+    )
+
+
+def _restart_manifest_from_segment(
+    root,
+    manifest,
+    segment_number,
+    settings,
+    plan_hash,
+):
+    """Discard a rendered suffix while retaining its durable prefix."""
+    segment_number = int(segment_number)
+    if segment_number < 1:
+        raise ValueError("restart_from_segment must be 0 (off) or at least 1")
+
+    entries = list(manifest.get("segments", []))
+    restart_index = segment_number - 1
+    if restart_index > len(entries):
+        raise RuntimeError(
+            f"Cannot restart from segment {segment_number}; only "
+            f"{len(entries)} segment(s) are durable."
+        )
+
+    new_frames = list(settings.get("segment_frames", []))
+    if restart_index > len(new_frames):
+        raise RuntimeError(
+            f"Cannot preserve {restart_index} segment(s) when the new plan "
+            f"contains only {len(new_frames)}."
+        )
+    for index, entry in enumerate(entries[:restart_index]):
+        if entry.get("frame_count") != new_frames[index]:
+            raise RuntimeError(
+                f"Cannot preserve segment {index + 1}: its frame count changed "
+                f"from {entry.get('frame_count')} to {new_frames[index]}."
+            )
+
+    previous_settings = manifest.get("settings", {})
+    if (
+        previous_settings.get("width") != settings.get("width")
+        or previous_settings.get("height") != settings.get("height")
+    ):
+        raise RuntimeError(
+            "Cannot preserve rendered segments after changing width or height."
+        )
+
+    for entry in entries[restart_index:]:
+        for key in ("file", "last_frame"):
+            relative = entry.get(key)
+            if relative:
+                path = root / relative
+                if path.is_file():
+                    path.unlink()
+
+    final_relative = manifest.get("final_video")
+    if final_relative:
+        final_path = root / final_relative
+        if final_path.is_file():
+            final_path.unlink()
+
+    if restart_index == 0:
+        anchor_relative = manifest.get("anchor_frame")
+        if anchor_relative:
+            anchor_path = root / anchor_relative
+            if anchor_path.is_file():
+                anchor_path.unlink()
+        manifest["anchor_frame"] = None
+
+    changed = _changed_setting_keys(previous_settings, settings)
+    manifest.setdefault("restarts", []).append({
+        "from_segment": segment_number,
+        "previous_plan_hash": manifest.get("plan_hash"),
+        "changed_settings": changed,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    manifest["segments"] = entries[:restart_index]
+    manifest["settings"] = settings
+    manifest["plan_hash"] = plan_hash
+    manifest["status"] = "rendering"
+    manifest["final_video"] = None
+    return changed
+
+
 def _tensor_fingerprint(tensor, sample_count=4096):
     import torch
 
@@ -438,6 +525,17 @@ class H3MultishotMemoryDiskSampler:
                            "long full-INT8 runs.",
             },
         )
+        schema["optional"]["restart_from_segment"] = (
+            "INT",
+            {
+                "default": 0,
+                "min": 0,
+                "max": 64,
+                "tooltip": "0 = normal resume. Set a 1-based segment number "
+                           "to delete that durable segment and everything after "
+                           "it, then rerender the suffix with current settings.",
+            },
+        )
         return schema
 
     RETURN_TYPES = ("VIDEO", "STRING", "INT")
@@ -477,6 +575,7 @@ class H3MultishotMemoryDiskSampler:
         keep_segments=False,
         plan_tag="",
         gpu_cleanup_between_segments=True,
+        restart_from_segment=0,
     ):
         import gc
         import folder_paths
@@ -553,7 +652,22 @@ class H3MultishotMemoryDiskSampler:
                     f"Run {run_name!r} already exists. Enable resume or choose "
                     "a new run_name."
                 )
-            if manifest.get("plan_hash") != plan_hash:
+            if restart_from_segment:
+                changed = _restart_manifest_from_segment(
+                    root,
+                    manifest,
+                    restart_from_segment,
+                    settings,
+                    plan_hash,
+                )
+                _atomic_json(manifest_path, manifest)
+                print(
+                    f"[H3Disk] restarting {run_name} from segment "
+                    f"{restart_from_segment}; changed settings: "
+                    f"{', '.join(changed) if changed else 'none'}",
+                    flush=True,
+                )
+            elif manifest.get("plan_hash") != plan_hash:
                 previous_settings = manifest.get("settings", {})
                 legacy_match = _legacy_settings_match(
                     previous_settings, settings
@@ -568,9 +682,13 @@ class H3MultishotMemoryDiskSampler:
                         flush=True,
                     )
                 else:
+                    changed = _changed_setting_keys(
+                        previous_settings, settings
+                    )
                     raise RuntimeError(
                         f"Run {run_name!r} exists with different settings. "
-                        "Choose a new run_name instead of mixing render plans."
+                        f"Changed: {', '.join(changed)}. Choose a new run_name "
+                        "or set restart_from_segment to rerender a suffix."
                     )
         else:
             existing = [path for path in root.iterdir()]
@@ -695,6 +813,9 @@ class H3MultishotMemoryDiskSampler:
                 "sample_rate": int(segment["sample_rate"]),
                 "model_mode": segment["model_mode"],
                 "route_report": segment["route_report"],
+                "segment_seed": (
+                    seed + index if seed_per_shot else seed
+                ),
             })
             _atomic_json(manifest_path, manifest)
             # The generator holds the yielded dictionary while suspended.

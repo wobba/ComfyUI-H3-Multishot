@@ -120,6 +120,69 @@ def test_disk_manifest_helpers():
             "gpu_cleanup_between_segments": True,
         },
     )
+    assert disk._changed_setting_keys(
+        {"seed": 1, "width": 960},
+        {"seed": 2, "width": 960},
+    ) == ["seed"]
+    import tempfile
+    import json
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        for name in (
+            "segment_0001.mkv",
+            "segment_0001_last.png",
+            "segment_0002.mkv",
+            "segment_0002_last.png",
+            "master.mp4",
+            "anchor.png",
+        ):
+            (root / name).write_bytes(b"test")
+        manifest = {
+            "plan_hash": "old",
+            "settings": {
+                "seed": 1,
+                "width": 960,
+                "height": 544,
+                "segment_frames": [243, 243],
+            },
+            "status": "complete",
+            "anchor_frame": "anchor.png",
+            "final_video": "master.mp4",
+            "segments": [
+                {
+                    "index": 0,
+                    "file": "segment_0001.mkv",
+                    "last_frame": "segment_0001_last.png",
+                    "frame_count": 243,
+                },
+                {
+                    "index": 1,
+                    "file": "segment_0002.mkv",
+                    "last_frame": "segment_0002_last.png",
+                    "frame_count": 243,
+                },
+            ],
+        }
+        changed = disk._restart_manifest_from_segment(
+            root,
+            manifest,
+            2,
+            {
+                "seed": 2,
+                "width": 960,
+                "height": 544,
+                "segment_frames": [243, 243],
+            },
+            "new",
+        )
+        assert changed == ["seed"]
+        assert len(manifest["segments"]) == 1
+        assert manifest["anchor_frame"] == "anchor.png"
+        assert (root / "segment_0001.mkv").is_file()
+        assert not (root / "segment_0002.mkv").exists()
+        assert not (root / "master.mp4").exists()
+        assert manifest["status"] == "rendering"
+        assert manifest["plan_hash"] == "new"
     import torch
     assert disk._tensor_fingerprint(torch.zeros(1, 8)) != (
         disk._tensor_fingerprint(torch.ones(1, 8))
