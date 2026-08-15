@@ -75,14 +75,14 @@ def _repair_json(text):
 
 
 
-def _xfade_audio(parts, sr, ms=40):
-    """Concatenate shot audio with a short equal-power crossfade at each seam.
+def _xfade_audio(parts, sr, ms=1000.0 / 24.0):
+    """Concatenate shot audio with a one-video-frame equal-power crossfade.
 
     Each shot is sampled independently, so its waveform starts and ends at a
     hard boundary. Butt-joining them puts a step discontinuity in the signal at
     every seam, which reads as a click and as "spliced clips" to a listener.
-    A ~40ms equal-power fade removes the step without audibly shortening
-    anything.
+    A one-frame fade removes the step and shortens audio by exactly the same
+    nominal duration as dropping each continuation segment's duplicate frame.
     """
     import torch
     if not parts:
@@ -1981,7 +1981,7 @@ class H3MultishotMemorySampler:
             anchor=anchor,
             history=[],
             announce_start_image=start_image is not None,
-            trim_audio_seam=True,
+            trim_audio_seam=False,
         )
         for segment in segments:
             sr = segment["sample_rate"]

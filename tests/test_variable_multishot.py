@@ -32,6 +32,12 @@ def test_inline_frame_counts():
     assert utils._resolve_script_input("fallback", None) == "fallback"
     assert utils._resolve_script_input("fallback", "  ") == "fallback"
     assert utils._resolve_script_input("fallback", "external") == "external"
+    import torch
+    audio = utils._xfade_audio(
+        [torch.zeros(1, 1, 3200), torch.zeros(1, 1, 3200)],
+        32000,
+    )
+    assert audio.shape[-1] == 6400 - int(32000 / 24)
     prompts, blends = utils._extract_inline_seam_blends([
         "First",
         "seam_blend_frames: 6\nSecond",
@@ -105,6 +111,7 @@ def test_reference_routing():
 
 def test_disk_manifest_helpers():
     disk = load_module("h3_disk_sampler")
+    import torch
     assert disk._validate_run_name("movie-01_take.2") == "movie-01_take.2"
     try:
         disk._validate_run_name("../escape")
@@ -189,7 +196,6 @@ def test_disk_manifest_helpers():
         assert not (root / "master.mp4").exists()
         assert manifest["status"] == "rendering"
         assert manifest["plan_hash"] == "new"
-    import torch
     assert disk._tensor_fingerprint(torch.zeros(1, 8)) != (
         disk._tensor_fingerprint(torch.ones(1, 8))
     )
