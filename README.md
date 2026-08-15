@@ -101,6 +101,10 @@ See [Changelog](#changelog).
   RSS. Keep `gpu_cleanup_between_segments=true` so each next segment reloads
   from a clean CUDA allocator instead of accumulating fragmentation across
   repeated text-encoder/DiT/VAE swaps.
+  Add `seam_blend_frames: 6` to a continuation prompt block to ease its first
+  six kept frames from the preceding final frame. The directive is stripped
+  before conditioning and applies bounded color matching across that
+  continuation segment. Intentional cuts are unaffected when it is absent.
   Set `restart_from_segment` to a 1-based segment number to preserve the
   durable prefix and rerender that segment plus every dependent segment after
   it. Return the control to `0` after queuing the replacement suffix.

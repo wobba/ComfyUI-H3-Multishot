@@ -137,6 +137,9 @@ def _parse_script(text):
 _FRAME_COUNT_DIRECTIVE = re.compile(
     r"(?im)^\s*frame_count\s*:\s*(\d+)\s*$"
 )
+_SEAM_BLEND_DIRECTIVE = re.compile(
+    r"(?im)^\s*seam_blend_frames\s*:\s*(\d+)\s*$"
+)
 
 
 def _extract_inline_frame_counts(shots):
@@ -167,6 +170,36 @@ def _extract_inline_frame_counts(shots):
             frame_counts.append(None)
         prompts.append(prompt)
     return prompts, frame_counts
+
+
+def _extract_inline_seam_blends(shots):
+    """Remove optional continuation seam controls from prompt blocks."""
+    prompts = []
+    seam_blends = []
+    for index, prompt in enumerate(shots):
+        matches = list(_SEAM_BLEND_DIRECTIVE.finditer(prompt))
+        if len(matches) > 1:
+            raise ValueError(
+                f"Segment {index + 1} contains multiple seam_blend_frames "
+                "directives; use exactly one."
+            )
+        blend_frames = int(matches[0].group(1)) if matches else 0
+        if blend_frames > 24:
+            raise ValueError(
+                f"Segment {index + 1} seam_blend_frames must be 0..24"
+            )
+        if index == 0 and blend_frames:
+            print(
+                "[H3Memory] segment 1 seam_blend_frames ignored because "
+                "there is no preceding segment.",
+                flush=True,
+            )
+            blend_frames = 0
+        prompt = _SEAM_BLEND_DIRECTIVE.sub("", prompt, count=1)
+        prompt = re.sub(r"\n{3,}", "\n\n", prompt).strip()
+        prompts.append(prompt)
+        seam_blends.append(blend_frames)
+    return prompts, seam_blends
 
 
 def _resolve_segment_frames(
@@ -1463,6 +1496,7 @@ def _prepare_memory_plan(script, shot_count, frames_per_shot, align_frame_count)
     shots, segment_frames = _resolve_segment_frames(
         shots, frames_per_shot, align_frame_count
     )
+    shots, segment_seam_blends = _extract_inline_seam_blends(shots)
     print(
         "[H3Memory] segment frame schedule: "
         + " | ".join(
@@ -1470,7 +1504,13 @@ def _prepare_memory_plan(script, shot_count, frames_per_shot, align_frame_count)
         ),
         flush=True,
     )
-    return shots, n, segment_frames
+    if any(segment_seam_blends):
+        print(
+            "[H3Memory] continuation seam blends: "
+            + " | ".join(str(value) for value in segment_seam_blends),
+            flush=True,
+        )
+    return shots, n, segment_frames, segment_seam_blends
 
 
 def _iter_memory_segments(
@@ -1495,6 +1535,7 @@ def _iter_memory_segments(
     visual_reference_schedule,
     audio_reference_mode,
     audio_reference_schedule,
+    segment_seam_blends=None,
     start_index=0,
     anchor=None,
     history=None,
@@ -1512,6 +1553,9 @@ def _iter_memory_segments(
 
     n = len(shots)
     history = list(history or [])
+    segment_seam_blends = list(segment_seam_blends or [0] * n)
+    if len(segment_seam_blends) != n:
+        raise ValueError("segment_seam_blends must match the segment count")
     sampler = ncs.KSamplerSelect().get_sampler(sampler_name)[0]
 
     if announce_start_image and anchor is not None:
@@ -1672,6 +1716,60 @@ def _iter_memory_segments(
 
         if si > 0:
             imgs = imgs[1:]
+            blend_frames = min(
+                segment_seam_blends[si],
+                int(imgs.shape[0]),
+            )
+            if blend_frames and continuation is not None:
+                seam_source = continuation[:1]
+                if tuple(seam_source.shape[1:3]) != tuple(imgs.shape[1:3]):
+                    seam_source = mmh3._resize(
+                        seam_source, width, height, "disabled"
+                    )
+                seam_source = seam_source.to(
+                    device=imgs.device, dtype=imgs.dtype
+                )
+                stats_frames = min(blend_frames, int(imgs.shape[0]))
+                source_stats = seam_source[..., :3].float()
+                target_stats = imgs[:stats_frames, ..., :3].float()
+                source_mean = source_stats.mean(dim=(0, 1, 2))
+                source_std = source_stats.std(dim=(0, 1, 2))
+                target_mean = target_stats.mean(dim=(0, 1, 2))
+                target_std = target_stats.std(dim=(0, 1, 2))
+                gain = (source_std / target_std.clamp_min(1e-4)).clamp(
+                    0.85, 1.15
+                )
+                offset = (source_mean - target_mean * gain).clamp(
+                    -0.08, 0.08
+                )
+                tone_frames = int(imgs.shape[0])
+                original_tone = imgs[:tone_frames, ..., :3].float()
+                matched_tone = (
+                    original_tone * gain.view(1, 1, 1, 3)
+                    + offset.view(1, 1, 1, 3)
+                ).clamp(0, 1)
+                imgs[:tone_frames, ..., :3] = matched_tone.to(
+                    dtype=imgs.dtype
+                )
+                progress = torch.linspace(
+                    1.0 / blend_frames,
+                    1.0,
+                    blend_frames,
+                    device=imgs.device,
+                    dtype=imgs.dtype,
+                )
+                weights = progress.square() * (3 - 2 * progress)
+                weights = weights.view(-1, 1, 1, 1)
+                imgs[:blend_frames] = (
+                    seam_source * (1 - weights)
+                    + imgs[:blend_frames] * weights
+                )
+                print(
+                    f"[H3Memory] segment {si + 1}: blended "
+                    f"{blend_frames} continuation seam frame(s), tone-matched "
+                    f"{tone_frames} frame(s)",
+                    flush=True,
+                )
             if trim_audio_seam:
                 trim = int(round(sample_rate / 24.0))
                 waveform = waveform[..., trim:]
@@ -1848,7 +1946,7 @@ class H3MultishotMemorySampler:
         from comfy_extras import nodes_minimax_h3 as mmh3
 
         script = _resolve_script_input(script, script_override)
-        shots, n, segment_frames = _prepare_memory_plan(
+        shots, n, segment_frames, segment_seam_blends = _prepare_memory_plan(
             script,
             shot_count,
             frames_per_shot,
@@ -1879,6 +1977,7 @@ class H3MultishotMemorySampler:
             visual_reference_schedule=visual_reference_schedule,
             audio_reference_mode=audio_reference_mode,
             audio_reference_schedule=audio_reference_schedule,
+            segment_seam_blends=segment_seam_blends,
             anchor=anchor,
             history=[],
             announce_start_image=start_image is not None,

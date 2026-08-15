@@ -593,7 +593,12 @@ class H3MultishotMemoryDiskSampler:
         run_name, generated_run_name = _resolve_run_name(run_name)
         if generated_run_name:
             print(f"[H3Disk] auto run_name: {run_name}", flush=True)
-        shots, segment_count, segment_frames = _prepare_memory_plan(
+        (
+            shots,
+            segment_count,
+            segment_frames,
+            segment_seam_blends,
+        ) = _prepare_memory_plan(
             script,
             shot_count,
             frames_per_shot,
@@ -606,6 +611,7 @@ class H3MultishotMemoryDiskSampler:
             "height": height,
             "frames_per_shot": frames_per_shot,
             "segment_frames": segment_frames,
+            "segment_seam_blends": segment_seam_blends,
             "seed": seed,
             "steps": steps,
             "seed_per_shot": seed_per_shot,
@@ -774,6 +780,7 @@ class H3MultishotMemoryDiskSampler:
             visual_reference_schedule=visual_reference_schedule,
             audio_reference_mode=audio_reference_mode,
             audio_reference_schedule=audio_reference_schedule,
+            segment_seam_blends=segment_seam_blends,
             start_index=start_index,
             anchor=anchor,
             history=history,
@@ -809,6 +816,7 @@ class H3MultishotMemoryDiskSampler:
                 "file": _relative(segment_path, root),
                 "last_frame": _relative(last_frame_path, root),
                 "frame_count": segment_frames[index],
+                "seam_blend_frames": segment_seam_blends[index],
                 "output_frame_count": int(segment["images"].shape[0]),
                 "sample_rate": int(segment["sample_rate"]),
                 "model_mode": segment["model_mode"],

@@ -32,6 +32,12 @@ def test_inline_frame_counts():
     assert utils._resolve_script_input("fallback", None) == "fallback"
     assert utils._resolve_script_input("fallback", "  ") == "fallback"
     assert utils._resolve_script_input("fallback", "external") == "external"
+    prompts, blends = utils._extract_inline_seam_blends([
+        "First",
+        "seam_blend_frames: 6\nSecond",
+    ])
+    assert prompts == ["First", "Second"]
+    assert blends == [0, 6]
 
 
 def test_reference_routing():
