@@ -1893,9 +1893,10 @@ class H3MultishotMemorySampler:
             }),
             "audio_reference_mode": (["always", "auto_speaker_aware", "schedule"], {
                 "default": "always",
-                "tooltip": "Always preserves every audio reference. Auto keeps only "
-                           "refs whose mapped speaker has dialogue in the current "
-                           "shot; ambiguous references are retained. Schedule uses "
+                "tooltip": "Always preserves every audio reference. Auto sends "
+                           "voices only to segments that contain a <d> line, "
+                           "backtracking each line to its (Sn) speaker; "
+                           "unattributable references are retained. Schedule uses "
                            "the explicit per-shot source audio labels below.",
             }),
             "audio_reference_schedule": ("STRING", {
@@ -1910,8 +1911,10 @@ class H3MultishotMemorySampler:
                 {
                     "default": "always",
                     "tooltip": "Always sends all image/video refs. Auto sends only "
-                               "<Picture N>/<Video N> labels named by this segment. "
-                               "Schedule uses visual_reference_schedule.",
+                               "<Picture N>/<Video N> labels named by this segment, "
+                               "and drops those declared for a <Subject N> the "
+                               "segment body never uses. Schedule uses "
+                               "visual_reference_schedule.",
                 },
             ),
             "visual_reference_schedule": ("STRING", {

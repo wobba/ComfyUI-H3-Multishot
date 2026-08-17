@@ -112,6 +112,25 @@ See [Changelog](#changelog).
   Connect ComfyUI's **Text (Multiline)** node for a large editor; any non-empty
   connected value overrides the built-in script widget without changing
   existing saved workflows.
+
+  `audio_reference_mode=auto_speaker_aware` decides voices from the dialogue a
+  segment actually has: a segment with no `<d>` line sends no voice references
+  at all, and each `<d>` backtracks to the nearest preceding `(Sn)` tag to pick
+  whose voice is packed. No speech verb is matched, so `pitches`, `mumbles`, or
+  a Norwegian verb work as well as `says`. Speaker tags inside declaration
+  lines (`<Audio 2> is the voice of <Subject 2> (S2)`) define IDs and never
+  attribute a line. `visual_reference_mode=auto_prompt_aware` additionally
+  drops a `<Picture N>`/`<Video N>` that is declared for a `<Subject M>` the
+  segment body never uses, so a shared declaration block no longer drags every
+  character's identity images into every segment.
+
+  Whatever survives is compacted and renumbered locally: if only `<Audio 2>`
+  speaks, it is packed as local `<Audio 1>` and the prompt is rewritten to
+  match. Both auto modes fall back to keeping a reference whenever attribution
+  is ambiguous - unattributable dialogue, an undeclared reference, or a body
+  that names no subject - so they save context without silently costing
+  identity. Use `schedule` for a non-dialogue audio reference such as ambience,
+  which auto mode intentionally treats as unused.
 - **H3 Model Route (lazy FL2VA / Ref2VA)** - one workflow dropdown with three
   modes: `FL2VA only`, `Ref2VA only`, and `Mixed per segment`. Only model paths
   needed by the selected mode are evaluated, including their LoRA, Spectrum,

@@ -8,22 +8,97 @@ import re
 _AUDIO_TAG = re.compile(r"<Audio\s+(\d+)>", re.IGNORECASE)
 _PICTURE_TAG = re.compile(r"<Picture\s+(\d+)>", re.IGNORECASE)
 _VIDEO_TAG = re.compile(r"<Video\s+(\d+)>", re.IGNORECASE)
-_AUDIO_DEFINITION = re.compile(
-    r"<Audio\s+(\d+)>\s+is\b.*?\(S(\d+)\)", re.IGNORECASE | re.DOTALL
+_SUBJECT_TAG = re.compile(r"<Subject\s+(\d+)>", re.IGNORECASE)
+_DIALOGUE_TAG = re.compile(r"<d>", re.IGNORECASE)
+_SPEAKER_TAG = re.compile(r"\(S(\d+)\)", re.IGNORECASE)
+
+# A declaration binds a reference label to what it depicts. Everything else in
+# the prompt is the segment body: the part that decides what is actually used.
+_DECLARATION_LINE = re.compile(
+    r"^\s*<(?:Subject|Picture|Video|Audio)\s+\d+>\s*(?:\(S\d+\)\s*)?(?:is\b|:)",
+    re.IGNORECASE,
 )
+_AUDIO_SPEAKER = re.compile(
+    r"<Audio\s+(\d+)>[^\n]{0,240}?\(S(\d+)\)", re.IGNORECASE
+)
+_AUDIO_SUBJECT = re.compile(
+    r"<Audio\s+(\d+)>[^\n]{0,240}?<Subject\s+(\d+)>", re.IGNORECASE
+)
+_SUBJECT_SPEAKER = re.compile(r"<Subject\s+(\d+)>\s*\(S(\d+)\)", re.IGNORECASE)
+
+# How far back a <d> block may look for the speaker tag that owns it.
+_SPEAKER_BACKTRACK_WINDOW = 400
 
 
-def _audio_definition_map(prompt):
-    return {int(audio): int(speaker) for audio, speaker in _AUDIO_DEFINITION.findall(prompt)}
+def _audio_speaker_map(prompt):
+    """Map each source audio label to the speaker ID it voices.
+
+    Accepts both declaration styles these scripts use, `<Audio 1> is the
+    voice-timbre reference for <Subject 1> (S1)` and `<Audio 1>: reference -
+    timbre guides <Subject 1> (S1)`, and falls back to resolving the speaker
+    through the subject when the audio declaration itself names no `(Sn)`.
+    """
+    mapping = {int(audio): int(speaker) for audio, speaker in _AUDIO_SPEAKER.findall(prompt)}
+    subject_speaker = {
+        int(subject): int(speaker) for subject, speaker in _SUBJECT_SPEAKER.findall(prompt)
+    }
+    for audio, subject in _AUDIO_SUBJECT.findall(prompt):
+        audio, subject = int(audio), int(subject)
+        if audio not in mapping and subject in subject_speaker:
+            mapping[audio] = subject_speaker[subject]
+    return mapping
 
 
-def _speaker_has_dialogue(prompt, speaker):
-    pattern = re.compile(
-        rf"\(S{speaker}\)(?:(?!\(S\d+\)).)*?"
-        rf"(?:says|replies|asks|shouts|whispers|answers)\s*:\s*<d>",
-        re.IGNORECASE | re.DOTALL,
+def _segment_body(prompt):
+    """The prompt minus its reference declaration lines."""
+    return "\n".join(
+        line for line in prompt.splitlines() if not _DECLARATION_LINE.match(line)
     )
-    return bool(pattern.search(prompt))
+
+
+def _spoken_speakers(prompt):
+    """Speakers that actually deliver a `<d>` line in this segment.
+
+    Each `<d>` backtracks to the nearest preceding `(Sn)` tag, which is how
+    these scripts already attribute dialogue, so no speech-verb vocabulary is
+    involved. Declaration lines are removed first: the `(Sn)` in `<Audio 2> is
+    the voice of <Subject 2> (S2)` defines a speaker ID, it does not hand that
+    speaker a line. An empty set means "cannot attribute" - either there is no
+    dialogue or some line has no speaker in reach - and callers treat that as
+    "keep every voice".
+    """
+    body = _segment_body(prompt)
+    marks = [(match.end(), int(match.group(1))) for match in _SPEAKER_TAG.finditer(body)]
+    speakers = set()
+    for dialogue in _DIALOGUE_TAG.finditer(body):
+        start = dialogue.start()
+        preceding = [mark for mark in marks if mark[0] <= start]
+        if not preceding or start - preceding[-1][0] > _SPEAKER_BACKTRACK_WINDOW:
+            return set()
+        speakers.add(preceding[-1][1])
+    return speakers
+
+
+def _subject_reference_map(prompt):
+    """Pictures/videos each declaration ties to one or more `<Subject N>`.
+
+    Both directions are declarations of the same binding, so co-occurrence on a
+    declaration line is enough: `<Subject 1> is the man in <Picture 1>` and
+    `<Picture 1> is the identity reference for <Subject 1>`.
+    """
+    pictures = {}
+    videos = {}
+    for line in prompt.splitlines():
+        if not _DECLARATION_LINE.match(line):
+            continue
+        subjects = {int(label) for label in _SUBJECT_TAG.findall(line)}
+        if not subjects:
+            continue
+        for label in {int(label) for label in _PICTURE_TAG.findall(line)}:
+            pictures.setdefault(label, set()).update(subjects)
+        for label in {int(label) for label in _VIDEO_TAG.findall(line)}:
+            videos.setdefault(label, set()).update(subjects)
+    return pictures, videos
 
 
 def _explicitly_inactive(prompt, audio_label):
@@ -61,25 +136,28 @@ def _scheduled_labels(schedule, shot_index):
 
 
 def _auto_labels(prompt, available_labels):
-    """Select audio refs only when their mapped speaker actually speaks.
+    """Select voice references from the dialogue the segment actually contains.
 
-    Unknown mappings are retained so ambiguous prose never silently drops a
-    user-provided reference. Explicit "not used" text always wins.
+    A voice reference only does anything when someone speaks, so a `<d>` block
+    is what turns audio references on - not an `<Audio N>` tag. Each `<d>`
+    backtracks to its `(Sn)` speaker, and only the voices of speakers that
+    reach a line survive. Anything that cannot be attributed is retained, so
+    ambiguous prose never silently drops a user-provided reference, and an
+    explicit "not used" always wins.
     """
-    speaker_map = _audio_definition_map(prompt)
-    active = set()
-    for label in available_labels:
-        if _explicitly_inactive(prompt, label):
-            continue
-        speaker = speaker_map.get(label)
-        if speaker is None:
-            # A shot that does not name this reference has no reason to pay
-            # for its packed audio rows. A bare tag remains an explicit use.
-            if re.search(rf"<Audio\s+{label}>", prompt, re.IGNORECASE):
-                active.add(label)
-        elif _speaker_has_dialogue(prompt, speaker):
-            active.add(label)
-    return active
+    active = {label for label in available_labels if not _explicitly_inactive(prompt, label)}
+    if not active or not _DIALOGUE_TAG.search(prompt):
+        # Nothing is spoken here: every voice reference is dead weight.
+        return set()
+
+    speakers = _spoken_speakers(prompt)
+    speaker_map = _audio_speaker_map(prompt)
+    if not speakers or not speaker_map:
+        return active
+    return {
+        label for label in active
+        if speaker_map.get(label) is None or speaker_map[label] in speakers
+    }
 
 
 def _replace_audio_labels(prompt, source_to_local, inactive):
@@ -135,6 +213,15 @@ def _scheduled_visual_labels(schedule, shot_index):
 
 
 def _auto_visual_labels(prompt, available_pictures, available_videos):
+    """Select image/video refs named by the segment, pruned by subject usage.
+
+    A `<Picture N>` declared as the reference *for* a `<Subject M>` is only
+    worth its packed rows when that subject is used in the segment body, so a
+    declaration block listing every character no longer drags every identity
+    image into every segment. Pruning is skipped entirely when the body names
+    no subject at all, because then the prompt is not written in subject style
+    and dropping references would lose identity rather than save context.
+    """
     pictures = {
         int(label) for label in _PICTURE_TAG.findall(prompt)
         if int(label) in available_pictures
@@ -143,6 +230,19 @@ def _auto_visual_labels(prompt, available_pictures, available_videos):
         int(label) for label in _VIDEO_TAG.findall(prompt)
         if int(label) in available_videos
     }
+
+    used_subjects = {int(label) for label in _SUBJECT_TAG.findall(_segment_body(prompt))}
+    if not used_subjects:
+        return pictures, videos
+
+    picture_subjects, video_subjects = _subject_reference_map(prompt)
+
+    def keep(label, subject_map):
+        subjects = subject_map.get(label)
+        return not subjects or bool(subjects & used_subjects)
+
+    pictures = {label for label in pictures if keep(label, picture_subjects)}
+    videos = {label for label in videos if keep(label, video_subjects)}
     return pictures, videos
 
 

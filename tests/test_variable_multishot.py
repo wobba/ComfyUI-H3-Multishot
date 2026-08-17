@@ -109,6 +109,107 @@ def test_reference_routing():
     assert blocks == []
 
 
+def test_dialogue_driven_audio_routing():
+    routing = load_module("h3_reference_routing")
+    bank = {
+        "entries": [
+            {
+                "kind": "audio",
+                "items": [{"type": "audio", "data": "a1"}],
+                "blocks": ["ab1"],
+                "audio_label": 1,
+            },
+            {
+                "kind": "audio",
+                "items": [{"type": "audio", "data": "a2"}],
+                "blocks": ["ab2"],
+                "audio_label": 2,
+            },
+        ]
+    }
+    declarations = (
+        "<Audio 1> is the voice-timbre reference for <Subject 1> (S1).\n"
+        "<Audio 2> is the voice-timbre reference for <Subject 2> (S2).\n"
+    )
+
+    # A silent segment pays for no voices at all, even though both are declared.
+    _prompt, items, blocks, _report = routing.route_reference_bank(
+        bank,
+        declarations + "[Shot 1] The two walk through the lobby without speaking.",
+        0,
+        mode="auto_speaker_aware",
+    )
+    assert (items, blocks) == ([], [])
+
+    # Only speaker 2 speaks, so source <Audio 2> is sent and renumbered local 1.
+    prompt, items, blocks, report = routing.route_reference_bank(
+        bank,
+        declarations + "[Shot 1] <Subject 2> (S2) leans in and pitches:\n<d>Hei.</d>",
+        0,
+        mode="auto_speaker_aware",
+    )
+    assert blocks == ["ab2"]
+    assert items == [{"type": "audio", "data": "a2"}]
+    assert "<Audio 1> is the voice-timbre reference for <Subject 2>" in prompt
+    assert "<Audio 2>" not in prompt
+    assert "audio source=[2] -> local={2: 1}" in report
+
+    # Dialogue with no speaker tag in reach keeps every voice eligible.
+    _prompt, _items, blocks, _report = routing.route_reference_bank(
+        bank,
+        declarations + "[Shot 1] A voice answers from the dark.\n<d>Hei.</d>",
+        0,
+        mode="auto_speaker_aware",
+    )
+    assert blocks == ["ab1", "ab2"]
+
+
+def test_subject_aware_visual_routing():
+    routing = load_module("h3_reference_routing")
+    bank = {
+        "entries": [
+            {
+                "kind": "image",
+                "items": [{"type": "image", "data": "p1"}],
+                "blocks": ["pb1"],
+                "picture_label": 1,
+            },
+            {
+                "kind": "image",
+                "items": [{"type": "image", "data": "p2"}],
+                "blocks": ["pb2"],
+                "picture_label": 2,
+            },
+        ]
+    }
+    declarations = (
+        "<Subject 1> (S1) is Andreas, the cyclist in <Picture 1>.\n"
+        "<Picture 1> is the identity reference for <Subject 1>.\n"
+        "<Subject 2> (S2) is Maria, the reporter in <Picture 2>.\n"
+        "<Picture 2> is the identity reference for <Subject 2>.\n"
+    )
+
+    # Maria is declared but absent, so her identity image is not packed.
+    prompt, _items, blocks, report = routing.route_reference_bank(
+        bank,
+        declarations + "[Shot 1] <Subject 1> crests the climb alone.",
+        0,
+        visual_mode="auto_prompt_aware",
+    )
+    assert blocks == ["pb1"]
+    assert "pictures source=[1] -> local={1: 1}" in report
+    assert "the inactive picture reference" in prompt
+
+    # A body that names no subject is not subject-styled: nothing is pruned.
+    _prompt, _items, blocks, _report = routing.route_reference_bank(
+        bank,
+        declarations + "[Shot 1] Both riders crest the climb in <Picture 1> and <Picture 2>.",
+        0,
+        visual_mode="auto_prompt_aware",
+    )
+    assert blocks == ["pb1", "pb2"]
+
+
 def test_disk_manifest_helpers():
     disk = load_module("h3_disk_sampler")
     import torch
@@ -232,6 +333,8 @@ def test_lazy_model_route():
 if __name__ == "__main__":
     test_inline_frame_counts()
     test_reference_routing()
+    test_dialogue_driven_audio_routing()
+    test_subject_aware_visual_routing()
     test_disk_manifest_helpers()
     test_lazy_model_route()
     print("Variable multishot tests passed.")
