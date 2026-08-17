@@ -173,7 +173,7 @@ def main():
         {"name": "script_override", "type": "STRING", "link": 22},
     ]
     sampler["outputs"] = [
-        {"name": "video", "type": "VIDEO", "links": [19]},
+        {"name": "video", "type": "VIDEO", "links": None},
         {"name": "manifest_path", "type": "STRING", "links": None},
         {"name": "segments_rendered", "type": "INT", "links": None},
     ]
@@ -226,7 +226,10 @@ def main():
     for input_spec in nodes[5]["inputs"]:
         input_spec["link"] = bank_links[input_spec["name"]]
     nodes.pop(7)
-    nodes[8]["inputs"][0]["link"] = 19
+    # No SaveVideo: the disk sampler writes output/H3_DISK/<run_name>/master.mp4
+    # durably and now previews it in the node itself. Routing its VIDEO output
+    # into SaveVideo only wrote a second copy under a different prefix.
+    nodes.pop(8)
 
     nodes[2]["outputs"][0]["links"] = [9]
     nodes[3]["outputs"][0]["links"] = [10, 12]
@@ -277,7 +280,12 @@ def main():
             "back into the widget to resume. LoRA identity is fingerprinted "
             "automatically; `plan_tag` is only an optional manual note. To "
             "replace a bad durable suffix, set `restart_from_segment` to its "
-            "first segment number for one queue, then return it to 0."
+            "first segment number for one queue, then return it to 0.\n\n"
+            "Everything lands in `output/H3_DISK/<run_name>/`: `master.mp4`, "
+            "the per-segment MKVs, PNG checkpoints, and `manifest.json`. The "
+            "node previews `master.mp4` itself, so there is deliberately no "
+            "SaveVideo node - adding one just writes a second copy of the same "
+            "video under `output/video/...`."
         )
     ]
 
@@ -304,7 +312,6 @@ def main():
         [16, 11, 0, 5, 3, "IMAGE"],
         [17, 12, 0, 5, 4, "IMAGE"],
         [18, 13, 0, 5, 5, "AUDIO"],
-        [19, 6, 0, 8, 0, "VIDEO"],
         [20, 22, 0, 6, 0, "MODEL"],
         [21, 22, 1, 6, 5, "MODEL"],
         [22, 23, 0, 6, 6, "STRING"],

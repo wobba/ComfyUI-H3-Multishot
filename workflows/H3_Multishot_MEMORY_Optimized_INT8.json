@@ -209,9 +209,7 @@
         {
           "name": "video",
           "type": "VIDEO",
-          "links": [
-            19
-          ]
+          "links": null
         },
         {
           "name": "manifest_path",
@@ -251,38 +249,6 @@
       ]
     },
     {
-      "id": 8,
-      "type": "SaveVideo",
-      "pos": [
-        1040,
-        90
-      ],
-      "size": [
-        300,
-        100
-      ],
-      "title": "Save Persistent Reference Master",
-      "inputs": [
-        {
-          "name": "video",
-          "type": "VIDEO",
-          "link": 19
-        }
-      ],
-      "outputs": [
-        {
-          "name": "video",
-          "type": "VIDEO",
-          "links": null
-        }
-      ],
-      "widgets_values": [
-        "video/H3MULTI/PERSISTENT_REFS",
-        "auto",
-        "auto"
-      ]
-    },
-    {
       "id": 9,
       "type": "Note",
       "pos": [
@@ -297,7 +263,7 @@
       "inputs": [],
       "outputs": [],
       "widgets_values": [
-        "## Optimized H3 Memory chain\n\nBoth INT8 models are patched once through **MiniMax-H3 Turbo LoRA -> Spectrum -> SageAttention3**. The sampler uses FL2VA for a segment with no routed native reference blocks and Ref2VA only when that segment uses `<Picture N>`, `<Video N>`, or active audio refs.\n\nSet **H3 Model Route** to `FL2VA only`, `Ref2VA only`, or `Mixed per segment`. It is lazy: unused loader/LoRA/Spectrum/Sage chains are not evaluated. No rewiring or muting is needed.\n\nEdit the large **H3 segment script** text node. Its connected `script_override` socket takes precedence over the sampler's small built-in fallback text box.\n\nThe LoRA nodes reproduce the validated optimized source graph. Choose the desired LoRA and strength there before rendering.\n\nPut `frame_count: N` inside each outer `---` prompt block. The sampler strips it before conditioning and uses it for that segment's latent length. A block without it uses `frames_per_shot`. Internal `[Shot N] At MM:SS.mmm` camera cuts can occur at arbitrary times inside a segment and do not need to match generation boundaries.\n\nFor a segment that continues the preceding scene without a cut, add `seam_blend_frames: 6` inside that block. It smooths only that boundary and is stripped before text conditioning.\n\nReference loaders are muted by default. Enable and select only the assets required by the script. `auto_prompt_aware` compacts visual labels per segment. The Disk/Resume sampler writes lossless segment intermediates and PNG memory checkpoints immediately, then returns a lazy VIDEO after final assembly. Leave `run_name` empty for a unique logged name on every queue. If interrupted, paste that name back into the widget to resume. LoRA identity is fingerprinted automatically; `plan_tag` is only an optional manual note. To replace a bad durable suffix, set `restart_from_segment` to its first segment number for one queue, then return it to 0."
+        "## Optimized H3 Memory chain\n\nBoth INT8 models are patched once through **MiniMax-H3 Turbo LoRA -> Spectrum -> SageAttention3**. The sampler uses FL2VA for a segment with no routed native reference blocks and Ref2VA only when that segment uses `<Picture N>`, `<Video N>`, or active audio refs.\n\nSet **H3 Model Route** to `FL2VA only`, `Ref2VA only`, or `Mixed per segment`. It is lazy: unused loader/LoRA/Spectrum/Sage chains are not evaluated. No rewiring or muting is needed.\n\nEdit the large **H3 segment script** text node. Its connected `script_override` socket takes precedence over the sampler's small built-in fallback text box.\n\nThe LoRA nodes reproduce the validated optimized source graph. Choose the desired LoRA and strength there before rendering.\n\nPut `frame_count: N` inside each outer `---` prompt block. The sampler strips it before conditioning and uses it for that segment's latent length. A block without it uses `frames_per_shot`. Internal `[Shot N] At MM:SS.mmm` camera cuts can occur at arbitrary times inside a segment and do not need to match generation boundaries.\n\nFor a segment that continues the preceding scene without a cut, add `seam_blend_frames: 6` inside that block. It smooths only that boundary and is stripped before text conditioning.\n\nReference loaders are muted by default. Enable and select only the assets required by the script. `auto_prompt_aware` compacts visual labels per segment. The Disk/Resume sampler writes lossless segment intermediates and PNG memory checkpoints immediately, then returns a lazy VIDEO after final assembly. Leave `run_name` empty for a unique logged name on every queue. If interrupted, paste that name back into the widget to resume. LoRA identity is fingerprinted automatically; `plan_tag` is only an optional manual note. To replace a bad durable suffix, set `restart_from_segment` to its first segment number for one queue, then return it to 0.\n\nEverything lands in `output/H3_DISK/<run_name>/`: `master.mp4`, the per-segment MKVs, PNG checkpoints, and `manifest.json`. The node previews `master.mp4` itself, so there is deliberately no SaveVideo node - adding one just writes a second copy of the same video under `output/video/...`."
       ],
       "color": "#24364b",
       "bgcolor": "#13202f"
@@ -931,14 +897,6 @@
       5,
       5,
       "AUDIO"
-    ],
-    [
-      19,
-      6,
-      0,
-      8,
-      0,
-      "VIDEO"
     ],
     [
       20,

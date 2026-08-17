@@ -210,6 +210,39 @@ def test_subject_aware_visual_routing():
     assert blocks == ["pb1", "pb2"]
 
 
+def test_disk_video_ui_result():
+    disk = load_module("h3_disk_sampler")
+    import sys
+    import types
+    from pathlib import Path
+
+    stub = types.ModuleType("folder_paths")
+    stub.get_output_directory = lambda: str(Path("/comfy/output"))
+    sys.modules["folder_paths"] = stub
+    try:
+        final = Path("/comfy/output") / "H3_DISK" / "my-run" / "master.mp4"
+        payload = disk._ui_video_result(final, ("video", "manifest", 3))
+
+        # The node presents its own master, which is what removes the need for
+        # a SaveVideo node writing a duplicate under output/video/.
+        assert payload["result"] == ("video", "manifest", 3)
+        assert payload["ui"]["images"] == [{
+            "filename": "master.mp4",
+            "subfolder": "H3_DISK/my-run",
+            "type": "output",
+        }]
+        assert payload["ui"]["animated"] == (True,)
+
+        # A path outside the output tree cannot be previewed; return unchanged.
+        outside = Path("/somewhere/else/master.mp4")
+        assert disk._ui_video_result(outside, ("video", "m", 1)) == ("video", "m", 1)
+    finally:
+        del sys.modules["folder_paths"]
+
+    # Without ComfyUI present the helper must degrade, not raise.
+    assert disk._ui_video_result(Path("/x/master.mp4"), ("v",)) == ("v",)
+
+
 def test_disk_manifest_helpers():
     disk = load_module("h3_disk_sampler")
     import torch
@@ -336,5 +369,6 @@ if __name__ == "__main__":
     test_dialogue_driven_audio_routing()
     test_subject_aware_visual_routing()
     test_disk_manifest_helpers()
+    test_disk_video_ui_result()
     test_lazy_model_route()
     print("Variable multishot tests passed.")

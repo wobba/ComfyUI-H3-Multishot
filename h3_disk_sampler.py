@@ -451,6 +451,34 @@ def _relative(path, root):
     return str(path.relative_to(root)).replace("\\", "/")
 
 
+def _ui_video_result(final_path, result):
+    """Present the finished master in the node itself.
+
+    Without this the node saves a perfectly good MP4 that never appears in the
+    UI, so workflows bolt a SaveVideo onto the VIDEO output purely for the
+    preview - which writes a second copy of the same video under a different
+    prefix. Emitting the same payload SaveVideo does removes that duplicate.
+    """
+    try:
+        import folder_paths
+        output_root = Path(folder_paths.get_output_directory())
+        subfolder = str(final_path.parent.relative_to(output_root)).replace("\\", "/")
+    except (ImportError, ValueError):
+        # Rendered outside the output tree: no preview, but still return video.
+        return result
+    return {
+        "ui": {
+            "images": [{
+                "filename": final_path.name,
+                "subfolder": subfolder,
+                "type": "output",
+            }],
+            "animated": (True,),
+        },
+        "result": result,
+    }
+
+
 def _release_process_memory():
     import ctypes
     import gc
@@ -721,11 +749,11 @@ class H3MultishotMemoryDiskSampler:
             if completed_final.is_file():
                 print(f"[H3Disk] completed run reused: {completed_final}",
                       flush=True)
-                return (
+                return _ui_video_result(completed_final, (
                     InputImpl.VideoFromFile(str(completed_final)),
                     str(manifest_path),
                     segment_count,
-                )
+                ))
 
         entries = manifest.get("segments", [])
         for expected, entry in enumerate(entries):
@@ -856,11 +884,11 @@ class H3MultishotMemoryDiskSampler:
                 segment_path.unlink(missing_ok=True)
 
         print(f"[H3Disk] complete: {final_path}", flush=True)
-        return (
+        return _ui_video_result(final_path, (
             InputImpl.VideoFromFile(str(final_path)),
             str(manifest_path),
             segment_count,
-        )
+        ))
 
 
 NODE_CLASS_MAPPINGS = {

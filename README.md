@@ -108,6 +108,15 @@ See [Changelog](#changelog).
   Set `restart_from_segment` to a 1-based segment number to preserve the
   durable prefix and rerender that segment plus every dependent segment after
   it. Return the control to `0` after queuing the replacement suffix.
+
+  **Output goes to one place: `output/H3_DISK/<run_name>/`** - `master.mp4`,
+  the per-segment lossless MKVs, the PNG memory checkpoints, and
+  `manifest.json`. That root is fixed; `run_name` is the widget that names the
+  folder. The node previews `master.mp4` itself, so it needs no `SaveVideo`.
+  Wiring its VIDEO output into one is what produced duplicate files: a second
+  copy of the same video under whatever `filename_prefix` that node carried
+  (`output/video/...`). The bundled optimized workflow therefore has no
+  `SaveVideo` node.
   Both Memory samplers also expose an optional `script_override` STRING socket.
   Connect ComfyUI's **Text (Multiline)** node for a large editor; any non-empty
   connected value overrides the built-in script widget without changing
