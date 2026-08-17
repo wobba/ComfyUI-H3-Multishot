@@ -154,6 +154,20 @@ def test_dialogue_driven_audio_routing():
     assert "<Audio 2>" not in prompt
     assert "audio source=[2] -> local={2: 1}" in report
 
+    # A bank can hold Audio 1 for another segment. It has no declaration here,
+    # so S2's line must not keep it alive merely because it exists in the bank.
+    prompt, _items, blocks, report = routing.route_reference_bank(
+        bank,
+        "<Audio 2>: reference - timbre guides <Subject 2> (S2).\n"
+        "[Shot 1] <Subject 2> (S2) smiles and says:\n<d>Hei.</d>",
+        0,
+        mode="auto_speaker_aware",
+    )
+    assert blocks == ["ab2"]
+    assert "<Audio 1>: reference - timbre guides <Subject 2>" in prompt
+    assert "audio source=[2] -> local={2: 1}" in report
+    assert "skipped audio=[1]" in report
+
     # Dialogue with no speaker tag in reach keeps every voice eligible.
     _prompt, _items, blocks, _report = routing.route_reference_bank(
         bank,

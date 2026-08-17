@@ -141,9 +141,11 @@ def _auto_labels(prompt, available_labels):
     A voice reference only does anything when someone speaks, so a `<d>` block
     is what turns audio references on - not an `<Audio N>` tag. Each `<d>`
     backtracks to its `(Sn)` speaker, and only the voices of speakers that
-    reach a line survive. Anything that cannot be attributed is retained, so
-    ambiguous prose never silently drops a user-provided reference, and an
-    explicit "not used" always wins.
+    reach a line survive. A bank entry without an `<Audio N> ... (Sn)`
+    declaration is not tied to any speaker, so it is deliberately dropped;
+    auto mode is usage-driven, not bank-driven. An unattributable `<d>` line
+    retains declared voices rather than guessing, and an explicit "not used"
+    always wins.
     """
     active = {label for label in available_labels if not _explicitly_inactive(prompt, label)}
     if not active or not _DIALOGUE_TAG.search(prompt):
@@ -156,7 +158,7 @@ def _auto_labels(prompt, available_labels):
         return active
     return {
         label for label in active
-        if speaker_map.get(label) is None or speaker_map[label] in speakers
+        if speaker_map.get(label) in speakers
     }
 
 

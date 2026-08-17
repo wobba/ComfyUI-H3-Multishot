@@ -135,11 +135,12 @@ See [Changelog](#changelog).
 
   Whatever survives is compacted and renumbered locally: if only `<Audio 2>`
   speaks, it is packed as local `<Audio 1>` and the prompt is rewritten to
-  match. Both auto modes fall back to keeping a reference whenever attribution
-  is ambiguous - unattributable dialogue, an undeclared reference, or a body
-  that names no subject - so they save context without silently costing
-  identity. Use `schedule` for a non-dialogue audio reference such as ambience,
-  which auto mode intentionally treats as unused.
+  match. An audio-bank entry with no `<Audio N> ... (Sn)` declaration is
+  deliberately dropped: auto mode is usage-driven, so an unused `<Audio 1>`
+  must not survive simply because it exists in the bank. An unattributable
+  dialogue line retains declared voices rather than guessing. Use `schedule`
+  for a non-dialogue audio reference such as ambience, which auto mode
+  intentionally treats as unused.
 - **H3 Model Route (lazy FL2VA / Ref2VA)** - one workflow dropdown with three
   modes: `FL2VA only`, `Ref2VA only`, and `Mixed per segment`. Only model paths
   needed by the selected mode are evaluated, including their LoRA, Spectrum,

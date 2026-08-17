@@ -1896,7 +1896,8 @@ class H3MultishotMemorySampler:
                 "tooltip": "Always preserves every audio reference. Auto sends "
                            "voices only to segments that contain a <d> line, "
                            "backtracking each line to its (Sn) speaker; "
-                           "unattributable references are retained. Schedule uses "
+                           "audio refs without an (Sn) binding are dropped. "
+                           "Schedule uses "
                            "the explicit per-shot source audio labels below.",
             }),
             "audio_reference_schedule": ("STRING", {
