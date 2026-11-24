@@ -564,6 +564,75 @@ class H3MultishotMemoryDiskSampler:
                            "it, then rerender the suffix with current settings.",
             },
         )
+        # Persistent native reference routing (see h3_reference_routing.py).
+        schema["optional"]["persistent_refs"] = (
+            "H3_REFS",
+            {
+                "tooltip": "Optional persistent native Ref2VA image/video/audio "
+                           "bank. Connect H3 Persistent Reference Bank; Ref2VA "
+                           "is required whenever this bank contains references.",
+            },
+        )
+        schema["optional"]["ref2va_model"] = (
+            "MODEL",
+            {
+                "tooltip": "Optional separately optimized Ref2VA model. Used only "
+                           "for segments whose routed native reference bank is "
+                           "non-empty; all other segments use model.",
+            },
+        )
+        schema["optional"]["audio_reference_mode"] = (
+            ["always", "auto_speaker_aware", "schedule"],
+            {
+                "default": "always",
+                "tooltip": "Always preserves every audio reference. Auto sends "
+                           "voices only to segments that contain a <d> line, "
+                           "backtracking each line to its (Sn) speaker; audio "
+                           "refs without an (Sn) binding are dropped. Schedule "
+                           "uses the explicit per-shot labels below.",
+            },
+        )
+        schema["optional"]["audio_reference_schedule"] = (
+            "STRING",
+            {
+                "default": "",
+                "multiline": False,
+                "tooltip": "Optional per-shot audio source labels, e.g. '2|2|1' "
+                           "or '[2, 2, 1]'. Active audio is locally renumbered "
+                           "to <Audio 1..N> for that shot.",
+            },
+        )
+        schema["optional"]["visual_reference_mode"] = (
+            ["always", "auto_prompt_aware", "schedule"],
+            {
+                "default": "always",
+                "tooltip": "Always sends all image/video refs. Auto sends only "
+                           "<Picture N>/<Video N> labels named by this segment, "
+                           "and drops those declared for a <Subject N> the "
+                           "segment body never uses. Schedule uses "
+                           "visual_reference_schedule.",
+            },
+        )
+        schema["optional"]["visual_reference_schedule"] = (
+            "STRING",
+            {
+                "default": "",
+                "multiline": False,
+                "tooltip": "Per-segment visual refs, e.g. 'P1,V1|none|P2'. "
+                           "Labels are compacted and rewritten locally. If the "
+                           "schedule ends early, trailing segments use no "
+                           "visuals.",
+            },
+        )
+        schema["optional"]["script_override"] = (
+            "STRING",
+            {
+                "forceInput": True,
+                "multiline": True,
+                "tooltip": "Optional external multiline STRING. Non-empty text "
+                           "overrides the built-in script widget.",
+            },
+        )
         return schema
 
     RETURN_TYPES = ("VIDEO", "STRING", "INT")

@@ -10,6 +10,7 @@ frame, and the segments are joined in-graph. These three nodes are the glue:
   H3ConcatAV     - stage A + stage B frames/audio -> one episode
 """
 import json
+import math
 import re
 
 _BLOCK_SPLIT = re.compile(r"(?m)^---\s*$")
@@ -21,7 +22,7 @@ class H3EpisodeSplit:
     Accepts either the one-line JSON envelope {"prompts": [...]} (the LPFF
     entry format) or raw blocks separated by --- lines. `bindings` is
     prepended to block 1 only - reference-image identity lines like
-    "<Picture 1>, <Picture 2> are the same person (Zara)." belong with the
+    "<Picture 1>, <Picture 2> are the same person (Rae)." belong with the
     ref2va stage, never in the I2V chain.
     """
 
@@ -267,12 +268,17 @@ class H3AutoRefs:
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {
-            "prompt_text": ("STRING", {"forceInput": True, "tooltip":
-                "Block-1 text; scanned for character folder names."}),
             "max_per_character": ("INT", {"default": 3, "min": 1, "max": 9,
                 "tooltip": "Images per matched character (sorted order; "
                 "front/three-quarter/profile sets hold identity best)."}),
         }, "optional": {
+            # 2.6.0: optional, so the node can run BEFORE the writer on the
+            # premise alone (wire the scene idea here or into extra_text) -
+            # then `found` can drive the writer's refs_attached and a miss
+            # is known before two minutes of writing are spent.
+            "prompt_text": ("STRING", {"forceInput": True, "tooltip":
+                "Text scanned for character folder names (the premise, or "
+                "the writer's output)."}),
             "refs_root": ("STRING", {"default": "", "tooltip":
                 "Folder holding one subfolder per character. Relative paths "
                 "resolve under input/. Empty = input/h3_refs/."}),
@@ -280,16 +286,36 @@ class H3AutoRefs:
                 "Explicit comma list of character folders - overrides the "
                 "prompt scan entirely when set."}),
             "overrides": ("STRING", {"default": "", "tooltip":
-                "Folder remaps, e.g. 'zara=zara_preflash' to swap a "
+                "Folder remaps, e.g. 'rae=rae_night' to swap a "
                 "character's ref set for specific scenes. Comma-separated."}),
-            "on_no_match": (["error", "no_reference"], {"default": "error",
-                "tooltip": "error = stop the run when no character matches "
-                "(an identity render without refs is a wasted render)."}),
+            "on_no_match": (["error", "no_reference"], {"default": "no_reference",
+                "tooltip": "no_reference (default) = warn in the console and "
+                "render WITHOUT photos when no character folder matches; "
+                "the writer is told (found=false) and describes the person "
+                "normally. error = stop the run instead."}),
+            "enabled": ("BOOLEAN", {"forceInput": True, "tooltip":
+                "Wire USE AUTO REFS here. Off = no scan, no photos, "
+                "found=false, and the run continues."}),
+            # 2.6.0: the writer may anonymise names (ID_A) or a script may
+            # only IMPLY the character; the premise / scene idea almost always
+            # names them. Wire the scene-idea text here and both are scanned.
+            "extra_text": ("STRING", {"forceInput": True, "tooltip":
+                "Optional second text to scan for character folder names - "
+                "wire the scene idea / premise here so a writer that renames "
+                "the character to ID_A still casts the right photos."}),
         }}
 
-    RETURN_TYPES = tuple(["IMAGE"] * 9 + ["STRING", "STRING"])
+    # refs_batch (2.6.0, appended last so saved graphs keep their slots):
+    # every picked photo in one IMAGE batch, resized to the first photo's
+    # size. Wire THIS to the sampler - the per-slot outputs feed a chain of
+    # core ImageBatch nodes that crash when a character has fewer photos
+    # than the chain expects.
+    # found (2.6.0, appended last): True when at least one photo was picked.
+    # Wire it to the writer's refs_attached so the writer only points at
+    # photographs that exist.
+    RETURN_TYPES = tuple(["IMAGE"] * 9 + ["STRING", "STRING", "IMAGE", "BOOLEAN"])
     RETURN_NAMES = tuple([f"ref_{i+1}" for i in range(9)]
-                         + ["prompt_out", "report"])
+                         + ["prompt_out", "report", "refs_batch", "found"])
     FUNCTION = "pick"
     CATEGORY = "video/minimax"
 
@@ -303,12 +329,14 @@ class H3AutoRefs:
         return r
 
     @classmethod
-    def IS_CHANGED(cls, prompt_text, max_per_character, refs_root="",
-                   characters="", overrides="", on_no_match="error"):
+    def IS_CHANGED(cls, max_per_character, prompt_text="", refs_root="",
+                   characters="", overrides="", on_no_match="no_reference",
+                   extra_text="", enabled=True):
         import os
         root = cls._root(refs_root)
-        sig = [str(hash(prompt_text or "")), str(max_per_character),
-               characters, overrides, root]
+        sig = [str(hash((prompt_text or "") + "|" + (extra_text or ""))),
+               str(max_per_character), characters, overrides, root,
+               str(bool(enabled))]
         try:
             for d in sorted(os.listdir(root)):
                 p = os.path.join(root, d)
@@ -319,13 +347,17 @@ class H3AutoRefs:
             pass
         return "|".join(sig)
 
-    def pick(self, prompt_text, max_per_character, refs_root="",
-             characters="", overrides="", on_no_match="error"):
+    def pick(self, max_per_character, prompt_text="", refs_root="",
+             characters="", overrides="", on_no_match="no_reference",
+             extra_text="", enabled=True):
         import os
         import numpy as np
         import torch
         from PIL import Image, ImageOps
 
+        if not enabled:
+            return tuple([None] * self.MAX_SLOTS
+                         + [prompt_text or "", "(auto refs off)", None, False])
         root = self._root(refs_root)
         try:
             dirs = sorted(d for d in os.listdir(root)
@@ -340,6 +372,7 @@ class H3AutoRefs:
 
         if (characters or "").strip():
             matched = [c.strip() for c in characters.split(",") if c.strip()]
+            matched = matched[:self.MAX_SLOTS]
         else:
             # strip dialogue so absent characters spoken about never match
             # (same scrub as JoyEcho_RefPicker, field-proven)
@@ -355,6 +388,11 @@ class H3AutoRefs:
             scrub = re.sub(r'\\"(?:[^"\\]|\\.)*?\\"', " ", scrub)
             scrub = re.sub(r'"(?:[^"\\]|\\.)*?"', " ", scrub)
             scrub = re.sub(r"says,\s*'(?:[^'])*?'", " ", scrub)
+            if (extra_text or "").strip():
+                # the premise names people the writer may have anonymised;
+                # its dialogue (if any) gets the same scrub
+                _x = re.sub(r'"(?:[^"\\]|\\.)*?"', " ", str(extra_text))
+                scrub = scrub + " " + _x
             low = scrub.lower()
             found = []
             for d in dirs:
@@ -362,7 +400,26 @@ class H3AutoRefs:
                 if m:
                     found.append((m.start(), d))
             found.sort()
-            matched = [d for _, d in found[:3]]
+            # Until 2.6.2 this was found[:3]: a five-character script silently
+            # cast only the first three mentioned, while refs_attached had the
+            # writer point ALL of them at photographs - the two uncast ones
+            # rendered as random people (reported on Civitai 2026-08-21).
+            matched = [d for _, d in found[:self.MAX_SLOTS]]
+
+        # Split the model's 9 reference slots across everyone who matched,
+        # instead of letting the first characters exhaust them: 2 characters
+        # keep 3 photos each, 4 get 2, five or more get 1. One photo per
+        # character holds identity less firmly than a 3-photo set - fewer
+        # characters per run is still the stronger setup - but every named
+        # character casting SOMETHING beats two of them casting nobody.
+        per_char = max_per_character
+        if matched:
+            per_char = min(max_per_character,
+                           max(1, self.MAX_SLOTS // len(matched)))
+            if per_char < max_per_character:
+                print(f"[H3AutoRefs] {len(matched)} characters matched - "
+                      f"{per_char} photo(s) each so everyone fits the model's "
+                      f"{self.MAX_SLOTS} reference slots.", flush=True)
 
         images, binds, lines, pic = [], [], [], 1
         for name in matched:
@@ -378,7 +435,7 @@ class H3AutoRefs:
                       "skipping.", flush=True)
                 continue
             nums = []
-            for f in files[:max_per_character]:
+            for f in files[:per_char]:
                 if len(images) >= self.MAX_SLOTS:
                     break
                 img = Image.open(os.path.join(fdir, f))
@@ -400,15 +457,30 @@ class H3AutoRefs:
             if on_no_match == "error":
                 raise ValueError(msg + " - name the character in the prose, "
                                  "set `characters`, or switch on_no_match.")
-            print(msg + " - continuing WITHOUT references.", flush=True)
+            print(msg + " - continuing WITHOUT references (the writer is "
+                  "told found=false and describes the person normally).",
+                  flush=True)
             return tuple([None] * self.MAX_SLOTS
-                         + [prompt_text, "(no references)"])
+                         + [prompt_text or "", "(no references)", None, False])
 
         prompt_out = "\n".join(binds) + "\n" + (prompt_text or "")
         report = f"{len(images)} ref(s): " + "; ".join(lines)
         print(f"[H3AutoRefs] {report}", flush=True)
         out = images + [None] * (self.MAX_SLOTS - len(images))
-        return tuple(out + [prompt_out, report])
+        # one batch for the sampler: photos of different sizes are fitted to
+        # the first photo's size, the same way core ImageBatch does it
+        batch = images[0]
+        if len(images) > 1:
+            import comfy.utils as _cu
+            _h, _w = images[0].shape[1], images[0].shape[2]
+            fitted = [images[0]]
+            for im in images[1:]:
+                if im.shape[1] != _h or im.shape[2] != _w:
+                    im = _cu.common_upscale(im.movedim(-1, 1), _w, _h,
+                                            "bilinear", "center").movedim(1, -1)
+                fitted.append(im)
+            batch = torch.cat(fitted, dim=0)
+        return tuple(out + [prompt_out, report, batch, True])
 
 
 class H3RefBatch:
@@ -469,7 +541,7 @@ class H3RefBatch:
             lines.append(f"{char}/{os.path.basename(p)} -> <Picture {idx}>")
         for char in order:
             nums = [f"<Picture {i}>" for i in per_char[char]]
-            # variant folders (zara_preflash, madison-corrupted) are the SAME
+            # variant folders (rae_night, rae-wet) are the SAME
             # person - bind the base name, i.e. the first separator token
             disp = re.split(r"[-_]", char)[0].title()
             binds.append(f"{', '.join(nums)} "
@@ -509,21 +581,91 @@ class H3StudioControls:
             "steps": ("INT", {"default": 12, "min": 1, "max": 50}),
             "sampler_name": (_sampler_names_sc(), {"default": "euler"}),
             "scheduler": (_scheduler_names_sc(), {"default": "beta"}),
+        }, "optional": {
+            # NEW WIDGETS APPEND LAST, and new OUTPUTS append last too -
+            # inserting either above shifts every saved workflow.
+            "shot_count": ("INT", {
+                "default": 0, "min": 0, "max": 30,
+                "tooltip": "How many shots the scene is, in TOTAL - not shots per "
+                           "prompt. 0 = one shot per --- block in the script (and lets "
+                           "the prompt writer decide). Wire this to BOTH the sampler's "
+                           "shot_count and the writer's num_shots so they "
+                           "cannot disagree."}),
+            "use_file_prompts": ("BOOLEAN", {
+                "default": False,
+                "label_on": "file / prompt set",
+                "label_off": "manual entry",
+                "tooltip": "Drives the prompt-source switch. OFF = type the "
+                           "scene yourself; ON = pull it from the prompt-set "
+                           "file or folder. Wire to an H3 Any Switch."}),
+            # EXTEND TAKE (2026-08-17): give it a length instead of shots x
+            # frames. 0 = off (everything above behaves exactly as before).
+            "take_seconds": ("FLOAT", {
+                "default": 0.0, "min": 0.0, "max": 600.0, "step": 0.5,
+                "tooltip": "EXTEND TAKE: 0 = off. Any other value = the length "
+                           "of the finished take; frames_per_shot above then "
+                           "sets the WINDOW length (snapped to the grid), "
+                           "shot_count is replaced by the computed count "
+                           "that fills the time. Set the writer's join_style "
+                           "to 'extend take' so it writes ONE speech across "
+                           "the windows."}),
+            "window": (["auto", "fit this card (VRAM auto)",
+                        "243", "226", "209", "192", "175", "158",
+                        "141", "124", "107", "90"], {
+                "default": "auto",
+                "tooltip": "Frames per window when take_seconds is set. auto "
+                           "= the largest window whose estimated activation "
+                           "pool fits with most of the weights resident on "
+                           "THIS card (wire model for a real weight size; 15 "
+                           "GB assumed otherwise). Bigger window = fewer "
+                           "joins; smaller = less VRAM."}),
+            "model": ("MODEL", {
+                "tooltip": "Optional, EXTEND TAKE only: the loaded H3 model, "
+                           "so 'auto' can size its weights."}),
         }}
 
-    RETURN_TYPES = ("INT", "INT", "INT", "INT", "STRING", "STRING")
+    RETURN_TYPES = ("INT", "INT", "INT", "INT", "STRING", "STRING",
+                    "INT", "BOOLEAN")
     RETURN_NAMES = ("width", "height", "frames_per_shot", "steps",
-                    "sampler_name", "scheduler")
+                    "sampler_name", "scheduler",
+                    "shot_count", "use_file_prompts")
     FUNCTION = "emit"
     CATEGORY = "video/minimax"
 
     def emit(self, width, height, frames_per_shot, steps,
-             sampler_name, scheduler):
+             sampler_name, scheduler, shot_count=0,
+             use_file_prompts=False, take_seconds=0.0, window="auto",
+             model=None):
+        if take_seconds and take_seconds > 0:
+            from .h3_extend import plan_take, _WINDOWS
+            # ONE number rules both modes (2.6.3): 'auto' follows the
+            # frames_per_shot widget above, snapped to the legal grid, so the
+            # panel no longer has two silent authorities over window length.
+            # The old VRAM-based sizing lives on as its own combo option.
+            if window == "auto":
+                snapped = min(_WINDOWS, key=lambda w: abs(w - frames_per_shot))
+                if snapped != frames_per_shot:
+                    print("[H3StudioControls] extend take: frames_per_shot %d "
+                          "is off the 17k+5 grid - snapped to %d"
+                          % (frames_per_shot, snapped), flush=True)
+                print("[H3StudioControls] extend take: window follows the "
+                      "frames_per_shot widget -> %df (pick 'fit this card "
+                      "(VRAM auto)' on 'window' for the old auto sizing)"
+                      % snapped, flush=True)
+                window = str(snapped)
+            elif window.startswith("fit this card"):
+                window = "auto"
+            n, f, total, summary = plan_take(take_seconds, window, width,
+                                             height, 24, 22, model)
+            frames_per_shot, shot_count = f, n
+            print("[H3StudioControls] " + summary, flush=True)
         print(f"[H3StudioControls] {width}x{height}, {frames_per_shot}f/shot, "
-              f"{steps} steps, {sampler_name}/{scheduler} -> both stages",
+              f"{steps} steps, {sampler_name}/{scheduler}, "
+              f"shots={'auto' if not shot_count else shot_count}, "
+              f"prompts={'file' if use_file_prompts else 'manual'}",
               flush=True)
         return (width, height, frames_per_shot, steps,
-                sampler_name, scheduler)
+                sampler_name, scheduler, shot_count, use_file_prompts)
 
 
 def _sampler_names_sc():
@@ -671,6 +813,7 @@ class H3AnySwitch:
                 "off_path": (_h3_any, {"lazy": True}),
                 "on_path": (_h3_any, {"lazy": True}),
             },
+            "hidden": {"prompt": "PROMPT", "unique_id": "UNIQUE_ID"},
         }
 
     RETURN_TYPES = (_h3_any,)
@@ -678,58 +821,324 @@ class H3AnySwitch:
     FUNCTION = "pick"
     CATEGORY = "H3/episode"
 
-    def check_lazy_status(self, use_on, off_path=None, on_path=None):
-        return ["on_path" if use_on else "off_path"]
+    def check_lazy_status(self, use_on, off_path=None, on_path=None,
+                          prompt=None, unique_id=None):
+        want = "on_path" if use_on else "off_path"
+        # Only request an input that is actually LINKED in the submitted
+        # prompt. Requesting an unlinked lazy input raises NodeInputError and
+        # kills the whole queue item - and a stale browser tab that survived a
+        # server restart can silently drop a link the saved canvas still has
+        # (2026-08-21: 20 queue items died in 0.11 s each on a link the disk
+        # copy had). Falling through lets pick() take the other path with a
+        # loud warning instead.
+        try:
+            links = (prompt or {}).get(str(unique_id), {}).get("inputs", {})
+            if not isinstance(links.get(want), list):        # a link is [node_id, slot]
+                other = "off_path" if use_on else "on_path"
+                if isinstance(links.get(other), list):
+                    print("[H3AnySwitch] %s is selected but NOT CONNECTED in "
+                          "the submitted graph (stale browser tab? reload the "
+                          "workflow from the sidebar) - falling back to %s."
+                          % (want, other), flush=True)
+                    return [other]
+                return []                                    # neither wired; pick() reports
+        except Exception:
+            pass
+        return [want]
 
-    def pick(self, use_on, off_path=None, on_path=None):
+    def pick(self, use_on, off_path=None, on_path=None, prompt=None,
+             unique_id=None):
+        name = "on_path" if use_on else "off_path"
         v = on_path if use_on else off_path
         if v is None:
-            raise ValueError(
-                "H3AnySwitch: the selected input (%s) is not connected"
-                % ("on_path" if use_on else "off_path"))
+            # an unwired selection is a canvas mistake - say so. A WIRED
+            # input that delivered nothing (an OFF gate upstream, e.g. the
+            # manual-refs gate) is a valid "nothing" and passes through.
+            wired = False
+            try:
+                wired = isinstance(
+                    prompt[str(unique_id)]["inputs"].get(name), list)
+            except Exception:
+                wired = False
+            if not wired:
+                raise ValueError(
+                    "H3AnySwitch: the selected input (%s) is not connected"
+                    % name)
+            print("[H3AnySwitch] %s is wired but delivered nothing (a gate "
+                  "upstream is off) - passing nothing." % name, flush=True)
         return (v,)
 
 
 class H3StudioSwitches:
     """One labeled panel of feature toggles; each BOOLEAN output drives H3AnySwitch gates."""
 
+    # 2.6.0: only flags that drive something in a shipped workflow. Removed:
+    # two_pass_upscale (the feature itself was removed from the sampler in
+    # 2.1.3 - the flag drove nothing), spectrum (owned by the Speed Boosters
+    # node), block_cache (same - one switch there instead of un-bypass+flip
+    # here), dual_clock_sampler and hybrid_cond (never wired anywhere).
+    # Widget layout change is handled by web/js/h3_widget_persistence.js,
+    # which maps the old 7/8-value array by position on load; new saves
+    # persist by name.
+    #
+    # OUTPUT SLOTS ARE NOT SHRUNK. Saved graphs link by slot INDEX, and a
+    # 2.5.x canvas wires sol_attn from slot 1, chunk_ffn from slot 2 and the
+    # remote encoder from slot 7. Shrinking to three outputs made every one
+    # of those graphs fail validation ("tuple index out of range") or, worse,
+    # silently drive the wrong gate. So the panel keeps the 2.5.5 slot
+    # layout: eight BOOLEAN outputs in the original order, three of them
+    # driven by widgets, the removed five always False (their gates then take
+    # the off_path, i.e. the plain model - exactly what a user who never
+    # installed those packs was getting anyway).
     FLAGS = [
-        ("two_pass_upscale", True),
-        ("sol_attn", True),
-        ("chunk_ffn", True),
-        ("spectrum", True),
-        ("block_cache", True),
-        ("dual_clock_sampler", False),
-        ("hybrid_cond", False),
+        ("sol_attn", False),
+        ("chunk_ffn", False),
+        ("remote_encoder", False),
     ]
+    LEGACY_SLOTS = ["two_pass_upscale", "sol_attn", "chunk_ffn", "spectrum",
+                    "block_cache", "dual_clock_sampler", "hybrid_cond",
+                    "remote_encoder"]
+    LEGACY_LABEL = {"two_pass_upscale": "two_pass (removed)",
+                    "spectrum": "spectrum (see Speed Boosters)",
+                    "block_cache": "block_cache (see Speed Boosters)",
+                    "dual_clock_sampler": "dual_clock (removed)",
+                    "hybrid_cond": "hybrid_cond (removed)"}
+
+    TIPS = {
+        "sol_attn":
+            "Memory-efficient attention: lowers peak VRAM on large canvases, "
+            "slightly slower. Two steps to use: install ComfyUI-sol-attn and "
+            "un-bypass the attention patch node (Ctrl+B), then turn this on. "
+            "The 24 GB card's tool for 243-frame windows.",
+        "chunk_ffn":
+            "Runs the model's feed-forward layers in chunks to lower peak "
+            "VRAM, slightly slower. Same two steps: install ComfyUI-sol-attn, "
+            "un-bypass the chunk FFN node (Ctrl+B), then turn this on.",
+        "remote_encoder":
+            "Encode prompts on a second ComfyUI PC so this card never loads "
+            "the 15+ GB text encoder. Fill in the H3 Remote Text Encoder "
+            "node first (address + encoder file) - the how-to note beside it "
+            "walks through setup. OFF = normal local encoding.",
+    }
 
     @classmethod
     def INPUT_TYPES(cls):
-        return {"required": {n: ("BOOLEAN", {"default": d}) for n, d in cls.FLAGS}}
+        return {"required": {
+            n: ("BOOLEAN", {"default": d, "tooltip": cls.TIPS.get(n, "")})
+            for n, d in cls.FLAGS}}
 
-    RETURN_TYPES = tuple("BOOLEAN" for _ in FLAGS)
-    RETURN_NAMES = tuple(n for n, _ in FLAGS)
+    # map(), not a comprehension: a comprehension in a class body cannot see
+    # class-level names (LEGACY_LABEL) - that mistake took the whole module
+    # down on load.
+    RETURN_TYPES = ("BOOLEAN",) * len(LEGACY_SLOTS)
+    RETURN_NAMES = tuple(map(LEGACY_LABEL.get, LEGACY_SLOTS, LEGACY_SLOTS))
     FUNCTION = "emit"
     CATEGORY = "H3/episode"
 
     def emit(self, **kw):
-        vals = dict(kw)
-        # INTERLOCK: the dual-clock euler sampler validates for a FULL sigma
-        # schedule (1.0 -> 0.0) and hard-rejects the split schedules two-pass
-        # produces. When both are on, dual_clock wins and two-pass is
-        # suppressed for this run instead of erroring out mid-queue.
-        if vals.get("dual_clock_sampler") and vals.get("two_pass_upscale"):
-            vals["two_pass_upscale"] = False
-            print("[H3StudioSwitches] dual_clock_sampler is ON -> "
-                  "two_pass_upscale suppressed for this run (the dual-clock "
-                  "sampler requires the full sigma schedule and rejects "
-                  "split schedules). Also use a standard full scheduler "
-                  "(simple/beta) with it - RES4SHO curves may not start at "
-                  "exactly sigma 1.0.", flush=True)
-        return tuple(vals[n] for n, _ in self.FLAGS)
+        live = {n: bool(kw.get(n, d)) for n, d in self.FLAGS}
+        return tuple(live.get(n, False) for n in self.LEGACY_SLOTS)
 
 
+class H3LTXTakeControls:
+    """MASTER CONTROLS for the LTX-2.5 single-generation canvas (Joy-LTX 2.5).
+
+    LTX renders the whole take in ONE generation. This panel does for LTX what
+    plan_take does for H3: it sizes the render to the card. LTX's cost model is
+    tokens = (W/32)(H/32) x latent frames, and pass 2 (the upscaled refine)
+    runs on the OUTPUT grid - so the upscale factor decides how much a take
+    costs: x2 = 4x the pixels of pass 1, x1.5 = 2.25x, none = pass 1 only.
+    Measured 2026-08-17: 960x544 -> x2 -> 1920x1088 at 193 frames (51k pass-2
+    tokens) renders on 24 GB; 481 frames (124k) hangs a 32 GB card fully
+    offloaded. So `auto` keeps the render size and picks the largest output
+    that fits: x2, then x1.5 (the LTX-2.3 x1.5 spatial upscaler, verified to
+    work on 2.5 latents), then a single pass. It prints the plan.
+    """
+
+    TOKENS_PER_GB = 2200      # pass-2 tokens per GB of card (measured, see docstring)
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "width": ("INT", {"default": 960, "min": 256, "max": 1920, "step": 32,
+                "tooltip": "RENDER (pass-1) width. Output = this x the upscale factor "
+                "(960x544 x2 = 1920x1088, x1.5 = 1440x832). Multiples of 32."}),
+            "height": ("INT", {"default": 544, "min": 256, "max": 1920, "step": 32,
+                "tooltip": "Render (pass-1) height; output = this x the upscale factor."}),
+            "take_seconds": ("FLOAT", {"default": 8.0, "min": 1.0, "max": 60.0, "step": 0.5,
+                "tooltip": "Length of the take, rendered in ONE generation. Longer takes "
+                "cost tokens; past what the card fits, auto steps the upscale down "
+                "(x2 -> x1.5 -> none) and prints which. 8 s x2 / ~14 s x1.5 at "
+                "960x544 is the 24 GB comfort zone."}),
+            "beat_seconds": ("FLOAT", {"default": 8.0, "min": 3.0, "max": 20.0, "step": 0.5,
+                "tooltip": "How long each written sentence/beat should be; the writer "
+                "gets take_seconds / beat_seconds beats to write."}),
+            "upscale": (["auto", "x2", "x1.5", "none"], {"default": "auto",
+                "tooltip": "auto = the largest output that fits your card. x2 = the "
+                "official LTX-2.5 spatial upscaler (4x pixels in pass 2). x1.5 = "
+                "the LTX-2.3 spatial x1.5 upscaler file - works on 2.5 latents "
+                "(verified render), 2.25x pixels, so about 1.8x the seconds of "
+                "x2 on the same card. none = pass 1 only at the render size."}),
+        }, "optional": {
+            "vram_gb": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 200.0, "step": 1.0,
+                "tooltip": "0 = read the card. Set a number to plan for another card."}),
+        }}
+
+    RETURN_TYPES = ("INT", "INT", "INT", "BOOLEAN", "BOOLEAN", "INT", "INT", "STRING")
+    RETURN_NAMES = ("pass1_width", "pass1_height", "frames", "two_pass", "use_x15", "beats", "beat_frames", "summary")
+    FUNCTION = "emit"
+    CATEGORY = "H3/episode"
+
+    @staticmethod
+    def _snap32(v):
+        return max(256, int(round(v / 32.0)) * 32)
+
+    @staticmethod
+    def _up15(v):
+        # the rational x1.5 head shuffles x3 then blur-downs /2 -> ceil on odd latent counts
+        return int(math.ceil((v // 32) * 1.5)) * 32
+
+    @staticmethod
+    def _tokens(w, h, frames):
+        return (w // 32) * (h // 32) * ((frames - 1) // 8 + 1)
+
+    def emit(self, width, height, take_seconds, beat_seconds=8.0, upscale="auto", vram_gb=0.0):
+        import math
+        frames = int(round(float(take_seconds) * 24))
+        frames = max(9, int(round((frames - 1) / 8.0)) * 8 + 1)
+        beats = max(1, int(math.ceil(float(take_seconds) / float(beat_seconds))))
+        beat_frames = max(9, int(round((float(beat_seconds) * 24 - 1) / 8.0)) * 8 + 1)
+        total = float(vram_gb) if vram_gb and vram_gb > 0 else 0.0
+        if total <= 0:
+            try:
+                import comfy.model_management as mm
+                total = mm.get_total_memory(mm.get_torch_device()) / (1024 ** 3)
+            except Exception:
+                total = 24.0
+        budget = self.TOKENS_PER_GB * total
+        w, h = self._snap32(width), self._snap32(height)
+        t1 = self._tokens(w, h, frames)
+        t2 = self._tokens(2 * w, 2 * h, frames)
+        w15, h15 = self._up15(w), self._up15(h)
+        t15 = self._tokens(w15, h15, frames)
+        two, use15 = False, False
+        if upscale == "x2" or (upscale == "auto" and t2 <= budget):
+            two = True
+            why = "two passes x2 -> %dx%d (%.0fk pass-2 tokens" % (2 * w, 2 * h, t2 / 1e3)
+            why += ", over the ~%.0fk this %.0f GB card fits - FORCED, expect streaming or an OOM)" % (budget / 1e3, total) if t2 > budget else ", of ~%.0fk this %.0f GB card fits)" % (budget / 1e3, total)
+        elif upscale == "x1.5" or (upscale == "auto" and t15 <= budget):
+            two, use15 = True, True
+            why = "two passes x1.5 -> %dx%d (%.0fk pass-2 tokens" % (w15, h15, t15 / 1e3)
+            why += ", over the ~%.0fk this %.0f GB card fits - FORCED, expect streaming or an OOM)" % (budget / 1e3, total) if t15 > budget else ", of ~%.0fk this %.0f GB card fits; x2 would need %.0fk)" % (budget / 1e3, total, t2 / 1e3)
+        else:
+            why = "ONE pass -> %dx%d (%.0fk tokens; x1.5 would need %.0fk, x2 %.0fk; ~%.0fk fits this %.0f GB card)" % (w, h, t1 / 1e3, t15 / 1e3, t2 / 1e3, budget / 1e3, total)
+            if t1 > budget:
+                why += " - even one pass is over budget: shorten the take or lower the size"
+        summary = ("LTX TAKE: %.1f s -> %d frames in ONE generation | render %dx%d | %s | writer gets %d "
+                   "beat(s) of %d frames" % (float(take_seconds), frames, w, h, why, beats, beat_frames))
+        print("[H3LTXTakeControls] " + summary, flush=True)
+        return (w, h, frames, two, use15, beats, beat_frames, summary)
+
+
+NODE_CLASS_MAPPINGS["H3LTXTakeControls"] = H3LTXTakeControls
+NODE_DISPLAY_NAME_MAPPINGS["H3LTXTakeControls"] = "LTX Take Controls (Joy-LTX 2.5)"
 NODE_CLASS_MAPPINGS["H3AnySwitch"] = H3AnySwitch
 NODE_CLASS_MAPPINGS["H3StudioSwitches"] = H3StudioSwitches
 NODE_DISPLAY_NAME_MAPPINGS["H3AnySwitch"] = "H3 Any Switch (lazy A/B)"
 NODE_DISPLAY_NAME_MAPPINGS["H3StudioSwitches"] = "H3 Studio Switches (feature toggles)"
+
+
+class H3ReferenceVideo:
+    """Trim a clip down to something sane to hand the sampler as a video reference.
+
+    Read this before using it. H3 tells the model a video reference is "a clip
+    from an earlier moment of this same continuous scene" and asks it to keep
+    the framing, camera distance, room contents and colour temperature. That is
+    SCENE and APPEARANCE conditioning. It is NOT motion transfer - H3 has no
+    pose, depth or optical-flow path, so the subject will not copy the movement
+    in your clip.
+
+    What this node is for: reference frames are subsampled to 2 fps and then
+    ride through every sampling step, so their cost is permanent. A 25-second
+    clip is roughly 50 reference frames on every step. Trim to a few
+    representative seconds and the reference does the same job for a fraction
+    of the tokens.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "frames": ("IMAGE", {"tooltip": "Frames of the clip to reference."}),
+            "start_seconds": ("FLOAT", {
+                "default": 0.0, "min": 0.0, "max": 600.0, "step": 0.5,
+                "tooltip": "Where the reference window starts."}),
+            "seconds": ("FLOAT", {
+                "default": 3.0, "min": 0.5, "max": 20.0, "step": 0.5,
+                "tooltip": "How much of the clip to keep. 2-4s of a "
+                           "representative moment carries the room and the "
+                           "look; more mostly buys token cost."}),
+            "source_fps": ("FLOAT", {
+                "default": 24.0, "min": 1.0, "max": 120.0, "step": 1.0,
+                "tooltip": "Frame rate of the incoming clip, used to convert "
+                           "seconds to frames. Only affects the trim."}),
+        }, "optional": {
+            "audio": ("AUDIO", {
+                "tooltip": "The clip's soundtrack. Trimmed to the same window. "
+                           "Leave empty and the sampler pairs the video with "
+                           "silence, which is fine when you only want the look."}),
+        }}
+
+    RETURN_TYPES = ("IMAGE", "AUDIO", "STRING")
+    RETURN_NAMES = ("ref_frames", "ref_audio", "info")
+    OUTPUT_TOOLTIPS = (
+        "Wire to the sampler's reference_video.",
+        "Wire to reference_video_audio (or leave it).",
+        "What was kept and what it will cost.")
+    FUNCTION = "trim"
+    CATEGORY = "video/minimax"
+
+    def trim(self, frames, start_seconds, seconds, source_fps, audio=None):
+        n = int(frames.shape[0])
+        fps = max(1e-6, float(source_fps))
+        a = max(0, min(n - 1, int(round(start_seconds * fps))))
+        b = max(a + 1, min(n, a + int(round(seconds * fps))))
+        out = frames[a:b]
+        kept = int(out.shape[0])
+
+        out_audio = None
+        if audio is not None and isinstance(audio, dict) and "waveform" in audio:
+            try:
+                sr = int(audio["sample_rate"])
+                w = audio["waveform"]
+                s0 = int(round(a / fps * sr))
+                s1 = int(round(b / fps * sr))
+                s1 = max(s0 + 1, min(int(w.shape[-1]), s1))
+                w = w[..., s0:s1]
+                if w.shape[-2] == 1:            # ref audio wants stereo
+                    w = w.repeat_interleave(2, dim=-2)
+                out_audio = {"waveform": w, "sample_rate": sr}
+            except Exception as e:
+                print("[H3ReferenceVideo] could not trim audio (%s); passing "
+                      "it through untrimmed" % e, flush=True)
+                out_audio = audio
+        if out_audio is None:
+            import torch
+            sr = 32000
+            out_audio = {"waveform": torch.zeros(1, 2, max(1, int(kept / fps * sr))),
+                         "sample_rate": sr}
+
+        # the sampler keeps every (FPS//2)-th frame; FPS is 24 in H3
+        est = max(1, kept // 12)
+        info = ("kept %d frame(s) (%.1fs-%.1fs of %.1fs) -> about %d reference "
+                "frame(s) after the sampler's 2 fps subsample. Scene/appearance "
+                "conditioning only; this does not transfer motion."
+                % (kept, a / fps, b / fps, n / fps, est))
+        print("[H3ReferenceVideo] " + info, flush=True)
+        if est > 12:
+            print("[H3ReferenceVideo] that is a lot of reference frames to "
+                  "carry on every step - consider a shorter window.", flush=True)
+        return (out, out_audio, info)
+
+
+NODE_CLASS_MAPPINGS["H3ReferenceVideo"] = H3ReferenceVideo
+NODE_DISPLAY_NAME_MAPPINGS["H3ReferenceVideo"] = "H3 Reference Video (trim for ref2va)"
