@@ -55,6 +55,97 @@ See [Changelog](#changelog).
   the piece plus the last N shot-end frames. The anchor never changes, so drift
   cannot compound. Knobs: `anchor_frames` (1 = on, the long-chain fix) and
   `memory_frames` (recent frames, 0 = stock behaviour).
+  - **Variable segment duration:** put `frame_count: N` inside each outer
+    `---` prompt block. The sampler removes this control line before text
+    encoding and uses it to size that segment's latent. A block without the
+    directive uses `frames_per_shot`; every resolved value is aligned to H3's
+    `17n+5` grid. This does not constrain camera-cut timing:
+    `[Shot N] At MM:SS.mmm` remains free to place cuts anywhere inside each
+    generated segment.
+  - **Per-segment FL2VA / Ref2VA:** connect an independently patched Ref2VA
+    model to `ref2va_model`. Segments with routed native reference blocks use
+    Ref2VA; segments without them use the primary FL2VA `model`. Both model
+    inputs can pass through the same Spectrum and SageAttention3 optimization
+    chain before reaching the sampler. An optional LoRA loader belongs before
+    Spectrum on whichever model path needs it.
+  - **Per-segment visual references:** `visual_reference_mode` can retain all
+    refs, select only `<Picture N>` / `<Video N>` tags present in that segment,
+    or use an explicit schedule such as `P1,V1|none|P2`. Selected labels are
+    compacted and rewritten to the local H3 reference order.
+- **H3 Multishot Memory Sampler (Disk / Resume)** - the long-form production
+  sibling of the in-RAM Memory sampler. It uses the same prompt, memory,
+  reference, FL2VA/Ref2VA routing, model patches, and inline `frame_count`
+  behavior, but writes each completed segment immediately as lossless
+  FFV1/PCM MKV. It atomically checkpoints:
+  - a JSON render manifest;
+  - the persistent anchor PNG;
+  - one final-frame PNG per segment;
+  - each lossless segment until final assembly.
+
+  Completed segments are never held in the returned `IMAGE`/`AUDIO` master.
+  The node keeps only the anchor and recent one-frame memory tensors, then
+  assembles a high-quality H.264/AAC MP4 and returns it as a disk-backed
+  `VIDEO`. Leave `run_name` empty for a unique ID on every queue; the generated
+  name is printed in the console and becomes the folder under
+  `output/H3_DISK/`. If interrupted, paste that name into `run_name` and rerun
+  to resume. `keep_segments=false` removes lossless MKVs after successful
+  assembly while retaining the manifest and PNG checkpoints. LoRA nodes attach
+  their selected file, strength, and mode automatically. `plan_tag` is only an
+  optional manual revision note. Reference tensors, start image, base model
+  names, and text encoder name are also fingerprinted.
+
+  For long full-INT8 runs, use Spectrum `max_history=2`,
+  `history_storage=system_ram`, and `offline_smoothing_replay=false`. Spectrum
+  remains active, but avoids retaining every denoising-step feature. The disk
+  sampler also runs `malloc_trim` after every durable segment and logs process
+  RSS. Keep `gpu_cleanup_between_segments=true` so each next segment reloads
+  from a clean CUDA allocator instead of accumulating fragmentation across
+  repeated text-encoder/DiT/VAE swaps.
+  Add `seam_blend_frames: 6` to a continuation prompt block to ease its first
+  six kept frames from the preceding final frame. The directive is stripped
+  before conditioning and applies bounded color matching across that
+  continuation segment. Intentional cuts are unaffected when it is absent.
+  Set `restart_from_segment` to a 1-based segment number to preserve the
+  durable prefix and rerender that segment plus every dependent segment after
+  it. Return the control to `0` after queuing the replacement suffix.
+
+  **Output goes to one place: `output/H3_DISK/<run_name>/`** - `master.mp4`,
+  the per-segment lossless MKVs, the PNG memory checkpoints, and
+  `manifest.json`. That root is fixed; `run_name` is the widget that names the
+  folder. The node previews `master.mp4` itself, so it needs no `SaveVideo`.
+  Wiring its VIDEO output into one is what produced duplicate files: a second
+  copy of the same video under whatever `filename_prefix` that node carried
+  (`output/video/...`). The bundled optimized workflow therefore has no
+  `SaveVideo` node.
+  Both Memory samplers also expose an optional `script_override` STRING socket.
+  Connect ComfyUI's **Text (Multiline)** node for a large editor; any non-empty
+  connected value overrides the built-in script widget without changing
+  existing saved workflows.
+
+  `audio_reference_mode=auto_speaker_aware` decides voices from the dialogue a
+  segment actually has: a segment with no `<d>` line sends no voice references
+  at all, and each `<d>` backtracks to the nearest preceding `(Sn)` tag to pick
+  whose voice is packed. No speech verb is matched, so `pitches`, `mumbles`, or
+  a Norwegian verb work as well as `says`. Speaker tags inside declaration
+  lines (`<Audio 2> is the voice of <Subject 2> (S2)`) define IDs and never
+  attribute a line. `visual_reference_mode=auto_prompt_aware` additionally
+  drops a `<Picture N>`/`<Video N>` that is declared for a `<Subject M>` the
+  segment body never uses, so a shared declaration block no longer drags every
+  character's identity images into every segment.
+
+  Whatever survives is compacted and renumbered locally: if only `<Audio 2>`
+  speaks, it is packed as local `<Audio 1>` and the prompt is rewritten to
+  match. An audio-bank entry with no `<Audio N> ... (Sn)` declaration is
+  deliberately dropped: auto mode is usage-driven, so an unused `<Audio 1>`
+  must not survive simply because it exists in the bank. An unattributable
+  dialogue line retains declared voices rather than guessing. Use `schedule`
+  for a non-dialogue audio reference such as ambience, which auto mode
+  intentionally treats as unused.
+- **H3 Model Route (lazy FL2VA / Ref2VA)** - one workflow dropdown with three
+  modes: `FL2VA only`, `Ref2VA only`, and `Mixed per segment`. Only model paths
+  needed by the selected mode are evaluated, including their LoRA, Spectrum,
+  and SageAttention3 nodes. Ref2VA-only is routed into the sampler's required
+  primary model input automatically; no manual rewiring is needed.
 - **H3 Optional Image (I2V on/off)** - a real toggle for an optional image
   input. A normal switch node cannot express "no image" (both branches are
   required), so turning I2V off usually ends up feeding a black placeholder
@@ -122,6 +213,10 @@ Full-precision text encoder + VAEs: [Comfy-Org/MiniMax-H3](https://huggingface.c
   the same graph does T2V and I2V: flip the toggle on to use your frame.
 - `H3_Multishot_MEMORY.json` - long-form mode: the memory sampler with an
   identity anchor, for 2-5 minute multi-shot pieces.
+- `H3_Multishot_MEMORY_Optimized_INT8.json` - preferred disk-backed optimized
+  flow: full INT8 FL2VA/Ref2VA paths, Larryvrh's MiniMax-H3 LoRA loader,
+  Spectrum, SageAttention3, inline per-segment frame counts, manifest resume,
+  and direct `VIDEO` output.
 - `H3_Keyframes.json` - **keyframes anywhere**, single pass. One generation,
   so the audio is one continuous stream with no seams.
 
@@ -131,11 +226,23 @@ Full-precision text encoder + VAEs: [Comfy-Org/MiniMax-H3](https://huggingface.c
 30s, three chained shots from one script on the Q5_1 GGUF: identity and voice
 held across both seams. This video was made BY the workflow it demonstrates.
 
+[`samples/variable_duration_two_people.txt`](samples/variable_duration_two_people.txt) -
+prompt-only stress test with requested camera shots of 2s / 3s / 20s / 10s /
+5s. It packs the first two cuts into one segment and spans the uninterrupted
+20-second shot across 15-second + 5-second H3 segments using inline
+`frame_count` controls.
+
 ## Notes
 
 - `frames_per_shot` sits on H3's 17k+5 frame grid (243 = ~10.1s at 24fps;
   362 = ~15.1s, the trained max - beyond is untested but functional).
+- Inline `frame_count` overrides that default per `---` segment. Internal
+  camera cuts do not need to match generation boundaries.
 - Malformed JSON scripts fail loudly instead of rendering the raw text.
+- The original Memory node remains useful for short previews, but it retains
+  every decoded frame and waveform in CPU RAM. Use Disk / Resume for long
+  scripts; toggling Spectrum settings cannot remove the in-RAM node's
+  fundamental accumulation.
 - **Resolution:** H3 is happiest at its native size. Rendering natively at
   1920x1088 measured *worse* than 960x544 in blind review (softer detail, and
   it reads as an upscale) while costing ~4x the time. Render native, then

@@ -3,6 +3,7 @@
 
 import math
 import os
+import hashlib
 
 
 MAX_IMAGES = 9
@@ -10,7 +11,25 @@ MAX_VIDEOS = 3
 MAX_AUDIOS = 3
 
 
-def _model_choices():
+def _update_tensor_fingerprint(digest, label, tensor, sample_count=4096):
+    import torch
+
+    value = tensor.detach().to(device="cpu").contiguous()
+    digest.update(label.encode("utf-8"))
+    digest.update(str(tuple(value.shape)).encode("ascii"))
+    digest.update(str(value.dtype).encode("ascii"))
+    flat = value.reshape(-1)
+    if flat.numel() > sample_count:
+        indices = torch.linspace(
+            0, flat.numel() - 1, sample_count, dtype=torch.int64
+        )
+        flat = flat[indices]
+    if flat.is_floating_point():
+        flat = flat.to(torch.float32)
+    digest.update(flat.numpy().tobytes())
+
+
+def _model_choices(variant=None):
     import folder_paths
 
     files = set(folder_paths.get_filename_list("diffusion_models"))
@@ -21,7 +40,26 @@ def _model_choices():
             for name in names:
                 if name.lower().endswith(".gguf"):
                     files.add(os.path.relpath(os.path.join(root, name), directory))
-    return sorted(files)
+    files = sorted(files)
+    if variant:
+        # Community GGUF packs commonly use hyphenated names such as
+        # MiniMax-H3-FL2VA-Q5_K_M.gguf, while the official safetensors names
+        # use underscores. Both are the same H3 variant and H3ModelLoaderAny
+        # can load either one.
+        needle = f"minimax_h3_{variant}"
+        matching = [
+            name for name in files
+            if needle in name.lower().replace("-", "_")
+        ]
+        if matching:
+            return matching
+    return files
+
+
+def _preferred_default(choices, preferred):
+    if preferred in choices or not choices:
+        return preferred
+    return choices[0]
 
 
 def _prepare_audio(audio_vae, audio, max_seconds):
@@ -144,12 +182,19 @@ class H3PersistentReferenceBank:
         frame_count = mmh3.align_frame_count(max(5, frames_per_shot))
         items = []
         blocks = []
+        entries = []
         report = []
+        picture_count = 0
+        video_count = 0
+        content_digest = hashlib.sha256()
 
         for index in range(1, MAX_IMAGES + 1):
             image = references.get(f"ref_image_{index}")
             if image is None:
                 continue
+            _update_tensor_fingerprint(
+                content_digest, f"image:{index}", image
+            )
             image = image[:1]
             height_in, width_in = image.shape[1:3]
             if ref_image_size == "match":
@@ -166,21 +211,33 @@ class H3PersistentReferenceBank:
             )
             resized = mmh3._resize(image, target_width, target_height, "disabled")
             latent = video_vae.encode(resized)
-            items.append({"type": "image", "data": resized})
-            blocks.append(
+            item = {"type": "image", "data": resized}
+            block = {
+                "kind": "image",
+                "latent_h": target_height // 16,
+                "latent_w": target_width // 16,
+                "latent": latent,
+            }
+            items.append(item)
+            blocks.append(block)
+            picture_count += 1
+            entries.append(
                 {
                     "kind": "image",
-                    "latent_h": target_height // 16,
-                    "latent_w": target_width // 16,
-                    "latent": latent,
+                    "items": [item],
+                    "blocks": [block],
+                    "picture_label": picture_count,
                 }
             )
-            report.append(f"Picture {index}")
+            report.append(f"Picture {picture_count}")
 
         for index in range(1, MAX_VIDEOS + 1):
             video = references.get(f"ref_video_{index}")
             if video is None:
                 continue
+            _update_tensor_fingerprint(
+                content_digest, f"video:{index}", video
+            )
             video_height, video_width = video.shape[1:3]
             target_width, target_height = mmh3.adapt_canvas(video_width, video_height)
             if video_width * video_height < target_width * target_height:
@@ -201,48 +258,85 @@ class H3PersistentReferenceBank:
                 frames = frames[:-1]
 
             audio_block = None
+            audio_item = None
+            audio_label = None
             paired_audio = references.get(f"ref_video_audio_{index}")
             if paired_audio is not None:
+                _update_tensor_fingerprint(
+                    content_digest,
+                    f"video_audio:{index}",
+                    paired_audio["waveform"],
+                )
                 audio_block, seconds = _prepare_audio(audio_vae, paired_audio, max_audio_seconds)
-                items.append({"type": "audio"})
-                report.append(f"Audio {sum(item['type'] == 'audio' for item in items)} (video {index})")
+                audio_item = {"type": "audio"}
+                items.append(audio_item)
+                audio_label = sum(item["type"] == "audio" for item in items)
+                report.append(f"Audio {audio_label} (video {index})")
 
             latent = video_vae.encode(frames)
             sample_indices = list(range(0, frames.shape[0], mmh3.FPS // 2))
-            items.append(
+            video_item = {
+                "type": "video",
+                "data": frames[sample_indices],
+                "timestamps": [i / 2.0 for i in range(len(sample_indices))],
+            }
+            block = {
+                "kind": "video_audio" if audio_block else "video",
+                "latent_t": latent.shape[2],
+                "latent_h": target_height // 16,
+                "latent_w": target_width // 16,
+                "ref_audio_t": audio_block["ref_audio_t"] if audio_block else 0,
+                "latent": latent,
+                "audio_latent": audio_block["audio_latent"] if audio_block else None,
+            }
+            items.append(video_item)
+            blocks.append(block)
+            video_count += 1
+            entries.append(
                 {
-                    "type": "video",
-                    "data": frames[sample_indices],
-                    "timestamps": [i / 2.0 for i in range(len(sample_indices))],
+                    "kind": "video",
+                    "items": ([audio_item] if audio_item else []) + [video_item],
+                    "blocks": [block],
+                    "video_item": video_item,
+                    "audio_label": audio_label,
+                    "video_label": video_count,
                 }
             )
-            blocks.append(
-                {
-                    "kind": "video_audio" if audio_block else "video",
-                    "latent_t": latent.shape[2],
-                    "latent_h": target_height // 16,
-                    "latent_w": target_width // 16,
-                    "ref_audio_t": audio_block["ref_audio_t"] if audio_block else 0,
-                    "latent": latent,
-                    "audio_latent": audio_block["audio_latent"] if audio_block else None,
-                }
-            )
-            report.append(f"Video {index}")
+            report.append(f"Video {video_count}")
 
         for index in range(1, MAX_AUDIOS + 1):
             audio = references.get(f"ref_audio_{index}")
             if audio is None:
                 continue
+            _update_tensor_fingerprint(
+                content_digest,
+                f"audio:{index}",
+                audio["waveform"],
+            )
             block, seconds = _prepare_audio(audio_vae, audio, max_audio_seconds)
-            items.append({"type": "audio"})
+            item = {"type": "audio"}
+            items.append(item)
             blocks.append(block)
-            report.append(f"Audio {sum(item['type'] == 'audio' for item in items)} ({seconds:.1f}s)")
+            audio_label = sum(item["type"] == "audio" for item in items)
+            entries.append(
+                {
+                    "kind": "audio",
+                    "items": [item],
+                    "blocks": [block],
+                    "audio_label": audio_label,
+                }
+            )
+            report.append(f"Audio {audio_label} ({seconds:.1f}s)")
 
         bank = {
             "items": items,
             "blocks": blocks,
+            "entries": entries,
             "has_references": bool(blocks),
             "report": ", ".join(report) if report else "No persistent references",
+            "content_fingerprint": (
+                content_digest.hexdigest() if entries else ""
+            ),
         }
         print(f"[H3PersistentRefs] {bank['report']}", flush=True)
         return (bank, bank["has_references"], bank["report"])
@@ -253,21 +347,30 @@ class H3ReferenceAwareModelLoader:
 
     @classmethod
     def INPUT_TYPES(cls):
-        choices = _model_choices()
+        fl2va_choices = _model_choices("fl2va")
+        ref2va_choices = _model_choices("ref2va")
         return {
             "required": {
                 "fl2va_model": (
-                    choices,
+                    fl2va_choices,
                     {
-                        "default": "minimax_h3_fl2va_pruned_nvfp4.safetensors",
-                        "tooltip": "Used when the connected reference bank is empty.",
+                        "default": _preferred_default(
+                            fl2va_choices,
+                            "minimax_h3_fl2va_int8_convrot.safetensors",
+                        ),
+                        "tooltip": "H3 FL2VA safetensors or GGUF model used when "
+                                   "the connected reference bank is empty.",
                     },
                 ),
                 "ref2va_model": (
-                    choices,
+                    ref2va_choices,
                     {
-                        "default": "minimax_h3_ref2va_pruned_nvfp4.safetensors",
-                        "tooltip": "Used whenever the connected reference bank contains images, video, or audio.",
+                        "default": _preferred_default(
+                            ref2va_choices,
+                            "minimax_h3_ref2va_int8_convrot.safetensors",
+                        ),
+                        "tooltip": "H3 Ref2VA safetensors or GGUF model used whenever "
+                                   "the connected reference bank contains images, video, or audio.",
                     },
                 ),
             },

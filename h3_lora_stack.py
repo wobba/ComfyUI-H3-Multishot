@@ -49,6 +49,9 @@ class H3LoraStack:
                 raise RuntimeError(f"H3LoraStack: LoRA not found: {name}")
             lora = comfy.utils.load_torch_file(path, safe_load=True)
             m, _ = comfy.sd.load_lora_for_models(m, None, lora, strength, 0)
+            plan_tags = list(m.get_attachment("h3_lora_plan_tags") or ())
+            plan_tags.append(f"{name}@{strength:g}:merge")
+            m.set_attachments("h3_lora_plan_tags", tuple(plan_tags))
             applied.append(f"{name} @{strength:g}")
         print("[H3LoraStack] " + (", ".join(applied) if applied else
                                   "no LoRAs active (all slots None)"),
