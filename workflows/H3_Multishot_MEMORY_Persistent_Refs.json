@@ -109,12 +109,15 @@
         544,
         243,
         0,
+        "randomize",
         12,
         true,
         2,
         1,
         "res_multistep",
-        "simple"
+        "simple",
+        "auto_speaker_aware",
+        ""
       ]
     },
     {
