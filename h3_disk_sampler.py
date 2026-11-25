@@ -673,6 +673,8 @@ class H3MultishotMemoryDiskSampler:
         plan_tag="",
         gpu_cleanup_between_segments=True,
         restart_from_segment=0,
+        prompt=None,
+        extra_pnginfo=None,
     ):
         import gc
         import folder_paths
